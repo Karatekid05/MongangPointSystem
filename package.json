@@ -1,0 +1,40 @@
+{
+  "name": "mongangpointsystem",
+  "version": "1.0.0",
+  "description": "Discord bot for gamifying gang participation with points and leaderboards",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Karatekid05/MongangPointSystem.git"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "points",
+    "gang",
+    "leaderboard",
+    "gamification"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Karatekid05/MongangPointSystem/issues"
+  },
+  "homepage": "https://github.com/Karatekid05/MongangPointSystem#readme",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "googleapis": "^129.0.0",
+    "mongoose": "^8.0.3",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
