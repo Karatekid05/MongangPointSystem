@@ -8,7 +8,6 @@ const gangPointsSchema = new mongoose.Schema({
     weeklyPoints: { type: Number, default: 0 },
     // Track different point sources
     pointsBreakdown: {
-        twitter: { type: Number, default: 0 },
         games: { type: Number, default: 0 },
         artAndMemes: { type: Number, default: 0 },
         activity: { type: Number, default: 0 },
@@ -17,7 +16,6 @@ const gangPointsSchema = new mongoose.Schema({
     },
     // Weekly breakdown
     weeklyPointsBreakdown: {
-        twitter: { type: Number, default: 0 },
         games: { type: Number, default: 0 },
         artAndMemes: { type: Number, default: 0 },
         activity: { type: Number, default: 0 },
@@ -68,11 +66,6 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     },
-    // Optional Twitter username for Engage Bot integration
-    twitterUsername: {
-        type: String,
-        default: null
-    },
     // Store points for each gang the user has been a part of
     gangPoints: [gangPointsSchema],
     // Track when user was last active for rate limiting
@@ -113,7 +106,6 @@ userSchema.methods.addPointsToGang = function (gangId, gangName, points, source)
             points: 0,
             weeklyPoints: 0,
             pointsBreakdown: {
-                twitter: 0,
                 games: 0,
                 artAndMemes: 0,
                 activity: 0,
@@ -121,7 +113,6 @@ userSchema.methods.addPointsToGang = function (gangId, gangName, points, source)
                 other: 0
             },
             weeklyPointsBreakdown: {
-                twitter: 0,
                 games: 0,
                 artAndMemes: 0,
                 activity: 0,
@@ -138,8 +129,9 @@ userSchema.methods.addPointsToGang = function (gangId, gangName, points, source)
 
     // Update breakdown
     if (source === 'twitter') {
-        gangPoints.pointsBreakdown.twitter += points;
-        gangPoints.weeklyPointsBreakdown.twitter += points;
+        // Handle twitter source as 'other' for backward compatibility
+        gangPoints.pointsBreakdown.other += points;
+        gangPoints.weeklyPointsBreakdown.other += points;
     } else if (source === 'games') {
         gangPoints.pointsBreakdown.games += points;
         gangPoints.weeklyPointsBreakdown.games += points;
@@ -198,7 +190,6 @@ userSchema.methods.switchGang = function (newGangId, newGangName) {
             points: 0,
             weeklyPoints: 0,
             pointsBreakdown: {
-                twitter: 0,
                 games: 0,
                 artAndMemes: 0,
                 activity: 0,
@@ -206,7 +197,6 @@ userSchema.methods.switchGang = function (newGangId, newGangName) {
                 other: 0
             },
             weeklyPointsBreakdown: {
-                twitter: 0,
                 games: 0,
                 artAndMemes: 0,
                 activity: 0,

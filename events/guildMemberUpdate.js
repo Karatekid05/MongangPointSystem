@@ -1,5 +1,5 @@
 const { registerUser } = require('../utils/pointsManager');
-const Gang = require('../models/Gang');
+const { Gang } = require('../utils/dbModels');
 
 module.exports = {
     name: 'guildMemberUpdate',

@@ -1,8 +1,15 @@
-const User = require('../models/User');
-const Gang = require('../models/Gang');
-const ActivityLog = require('../models/ActivityLog');
+const { User, Gang, ActivityLog } = require('./dbModels');
 const { gangsConfig } = require('../config/gangs');
 const mongoose = require('mongoose');
+const { appendPointLog } = require('./sheetsLogger');
+
+/**
+ * Points system module
+ * 
+ * This module handles awarding points to users and tracking activity.
+ * Gang points are now calculated as the sum of all member points
+ * rather than being awarded directly to gangs.
+ */
 
 /**
  * Award points to a user
@@ -11,7 +18,7 @@ const mongoose = require('mongoose');
  * @param {String} options.userId - Discord user ID
  * @param {String} options.username - Discord username
  * @param {Number} options.points - Points to award (positive or negative)
- * @param {String} options.source - Source of points (twitter, games, art, activity, etc.)
+ * @param {String} options.source - Source of points (games, art, activity, etc.)
  * @param {String} options.awardedBy - Discord ID of moderator awarding points (optional)
  * @param {String} options.awardedByUsername - Username of moderator (optional)
  * @param {String} options.reason - Reason for awarding points (optional)
@@ -25,18 +32,24 @@ async function awardUserPoints(options) {
         throw new Error('User not found in database. Please register the user first.');
     }
 
+    console.log(`Awarding ${options.points} points to user ${options.username} in gang ${user.currentGangName}`);
+    console.log(`Before award: User has ${user.points} total points, gang has points across all members`);
+
     // Award points to the user's current gang
-    user.addPointsToGang(
+    const updatedGangPoints = user.addPointsToGang(
         user.currentGangId,
         user.currentGangName,
         options.points,
         options.source
     );
 
+    console.log(`User now has ${user.points} total points and ${user.weeklyPoints} weekly points`);
+
+    // This should update the data in the in-memory database
     await user.save();
 
-    // Log the activity
-    await ActivityLog.create({
+    // Create the log data
+    const logData = {
         guildId: options.guildId,
         targetType: 'user',
         targetId: options.userId,
@@ -47,68 +60,34 @@ async function awardUserPoints(options) {
         awardedBy: options.awardedBy || null,
         awardedByUsername: options.awardedByUsername || null,
         reason: options.reason || null
-    });
+    };
 
-    // Update the gang's totalMemberPoints
+    // Log the activity in the database
+    await ActivityLog.create(logData);
+
+    // Log also to Google Sheets if configured
+    if (process.env.GOOGLE_SHEET_ID) {
+        appendPointLog(logData, process.env.GOOGLE_SHEET_ID);
+    }
+
+    // Force a complete recalculation of gang points
+    console.log(`Updating gang ${user.currentGangId} total member points`);
     await updateGangTotalPoints(user.currentGangId);
     await updateGangWeeklyPoints(user.currentGangId);
 
-    return user;
-}
+    // Get the latest user data after updates
+    const updatedUser = await User.findOne({ discordId: options.userId });
 
-/**
- * Award points to a gang
- * @param {Object} options - Award options
- * @param {String} options.guildId - Discord server ID
- * @param {String} options.gangId - Gang ID
- * @param {Number} options.points - Points to award (positive or negative)
- * @param {String} options.source - Source of points (events, competitions, other)
- * @param {String} options.awardedBy - Discord ID of moderator awarding points (optional)
- * @param {String} options.awardedByUsername - Username of moderator (optional)
- * @param {String} options.reason - Reason for awarding points (optional)
- * @returns {Promise<Object>} - Updated gang object
- */
-async function awardGangPoints(options) {
-    // Get the gang
-    const gang = await Gang.findOne({ gangId: options.gangId, guildId: options.guildId });
+    // Verify the points were updated correctly
+    console.log(`After updates: User ${updatedUser.username} has ${updatedUser.points} total points`);
 
-    if (!gang) {
-        throw new Error('Gang not found');
+    // Get the updated gang to verify
+    const gang = await Gang.findOne({ gangId: user.currentGangId });
+    if (gang) {
+        console.log(`Gang now has ${gang.totalMemberPoints} member points and ${gang.points} gang points`);
     }
 
-    // Award points
-    gang.points += options.points;
-    gang.weeklyPoints += options.points;
-
-    // Update the specific points category
-    if (options.source === 'events') {
-        gang.pointsBreakdown.events += options.points;
-        gang.weeklyPointsBreakdown.events += options.points;
-    } else if (options.source === 'competitions') {
-        gang.pointsBreakdown.competitions += options.points;
-        gang.weeklyPointsBreakdown.competitions += options.points;
-    } else {
-        gang.pointsBreakdown.other += options.points;
-        gang.weeklyPointsBreakdown.other += options.points;
-    }
-
-    await gang.save();
-
-    // Log the activity
-    await ActivityLog.create({
-        guildId: options.guildId,
-        targetType: 'gang',
-        targetId: options.gangId,
-        targetName: gang.name,
-        action: options.points >= 0 ? 'award' : 'deduct',
-        points: options.points,
-        source: options.source,
-        awardedBy: options.awardedBy || null,
-        awardedByUsername: options.awardedByUsername || null,
-        reason: options.reason || null
-    });
-
-    return gang;
+    return updatedUser;
 }
 
 /**
@@ -231,26 +210,51 @@ async function updateUserGang(options) {
  * @returns {Promise<void>}
  */
 async function updateGangTotalPoints(gangId) {
-    // Calculate sum of all members' points in the gang
-    const result = await User.aggregate([
-        { $match: { currentGangId: gangId } },
-        { $group: { _id: null, totalPoints: { $sum: '$points' }, count: { $sum: 1 } } }
-    ]);
+    try {
+        // Calculate sum of all members' points in the gang
+        const result = await User.aggregate([
+            { $match: { currentGangId: gangId } },
+            { $group: { _id: null, totalPoints: { $sum: '$points' }, count: { $sum: 1 } } }
+        ]);
 
-    if (result.length > 0) {
-        const totalPoints = result[0].totalPoints;
-        const memberCount = result[0].count;
+        console.log(`Updating gang ${gangId} total points, aggregation result:`, result);
 
-        // Update the gang
-        await Gang.updateOne(
-            { gangId: gangId },
-            {
-                $set: {
-                    totalMemberPoints: totalPoints,
-                    memberCount: memberCount
+        if (result.length > 0) {
+            const totalPoints = result[0].totalPoints || 0;
+            const memberCount = result[0].count || 0;
+
+            console.log(`Gang ${gangId} has ${memberCount} members with total ${totalPoints} points`);
+
+            // Update the gang
+            await Gang.updateOne(
+                { gangId: gangId },
+                {
+                    $set: {
+                        totalMemberPoints: totalPoints,
+                        memberCount: memberCount
+                    }
                 }
-            }
-        );
+            );
+
+            // Get the updated gang to verify
+            const updatedGang = await Gang.findOne({ gangId: gangId });
+            console.log(`After update, gang ${gangId} has totalMemberPoints: ${updatedGang.totalMemberPoints}`);
+        } else {
+            console.log(`No users found in gang ${gangId} or aggregation returned empty result`);
+
+            // Set to 0 if no members found
+            await Gang.updateOne(
+                { gangId: gangId },
+                {
+                    $set: {
+                        totalMemberPoints: 0,
+                        memberCount: 0
+                    }
+                }
+            );
+        }
+    } catch (error) {
+        console.error(`Error updating gang total points for ${gangId}:`, error);
     }
 }
 
@@ -260,20 +264,44 @@ async function updateGangTotalPoints(gangId) {
  * @returns {Promise<void>}
  */
 async function updateGangWeeklyPoints(gangId) {
-    // Calculate sum of all members' weekly points
-    const result = await User.aggregate([
-        { $match: { currentGangId: gangId } },
-        { $group: { _id: null, totalWeeklyPoints: { $sum: '$weeklyPoints' } } }
-    ]);
+    try {
+        // Calculate sum of all members' weekly points
+        const result = await User.aggregate([
+            { $match: { currentGangId: gangId } },
+            { $group: { _id: null, totalWeeklyPoints: { $sum: '$weeklyPoints' } } }
+        ]);
 
-    if (result.length > 0) {
-        const totalWeeklyPoints = result[0].totalWeeklyPoints;
+        console.log(`Updating gang ${gangId} weekly points, aggregation result:`, result);
 
-        // Update the gang
-        await Gang.updateOne(
-            { gangId: gangId },
-            { $set: { weeklyMemberPoints: totalWeeklyPoints } }
-        );
+        if (result.length > 0) {
+            const totalWeeklyPoints = result[0].totalWeeklyPoints || 0;
+
+            console.log(`Gang ${gangId} has total ${totalWeeklyPoints} weekly points`);
+
+            // Update the gang
+            await Gang.updateOne(
+                { gangId: gangId },
+                { $set: { weeklyMemberPoints: totalWeeklyPoints } }
+            );
+
+            // Get the updated gang to verify
+            const updatedGang = await Gang.findOne({ gangId: gangId });
+            console.log(`After update, gang ${gangId} has weeklyMemberPoints: ${updatedGang.weeklyMemberPoints}`);
+        } else {
+            console.log(`No users found in gang ${gangId} or aggregation returned empty result`);
+
+            // Set to 0 if no members found
+            await Gang.updateOne(
+                { gangId: gangId },
+                {
+                    $set: {
+                        weeklyMemberPoints: 0
+                    }
+                }
+            );
+        }
+    } catch (error) {
+        console.error(`Error updating gang weekly points for ${gangId}:`, error);
     }
 }
 
@@ -299,7 +327,18 @@ async function updateGangMemberCount(gangId, guildId) {
  * @returns {Promise<Array>} - Array of top users
  */
 async function getUserLeaderboard(guildId, limit = 100, skip = 0) {
-    return User.find({ guildId: guildId })
+    const users = await User.find({ guildId: guildId });
+
+    // Sort manually if .sort() is not available on the returned object
+    if (!users.sort) {
+        // Create a copy we can sort
+        const sortedUsers = [...users].sort((a, b) => b.points - a.points);
+        // Handle pagination
+        return sortedUsers.slice(skip, skip + limit);
+    }
+
+    // If sort is available, use it (MongoDB implementation)
+    return users
         .sort({ points: -1 })
         .skip(skip)
         .limit(limit);
@@ -313,7 +352,18 @@ async function getUserLeaderboard(guildId, limit = 100, skip = 0) {
  * @returns {Promise<Array>} - Array of top users for this week
  */
 async function getWeeklyUserLeaderboard(guildId, limit = 100, skip = 0) {
-    return User.find({ guildId: guildId })
+    const users = await User.find({ guildId: guildId });
+
+    // Sort manually if .sort() is not available on the returned object
+    if (!users.sort) {
+        // Create a copy we can sort
+        const sortedUsers = [...users].sort((a, b) => b.weeklyPoints - a.weeklyPoints);
+        // Handle pagination
+        return sortedUsers.slice(skip, skip + limit);
+    }
+
+    // If sort is available, use it (MongoDB implementation)
+    return users
         .sort({ weeklyPoints: -1 })
         .skip(skip)
         .limit(limit);
@@ -325,8 +375,16 @@ async function getWeeklyUserLeaderboard(guildId, limit = 100, skip = 0) {
  * @returns {Promise<Array>} - Array of gangs with stats
  */
 async function getGangLeaderboard(guildId) {
-    return Gang.find({ guildId: guildId })
-        .sort({ totalScore: -1 });
+    const gangs = await Gang.find({ guildId: guildId });
+
+    // Sort manually if .sort() is not available on the returned object
+    if (!gangs.sort) {
+        // Sort by total member points
+        return [...gangs].sort((a, b) => b.totalMemberPoints - a.totalMemberPoints);
+    }
+
+    // If sort is available, use it (MongoDB implementation)
+    return gangs.sort({ totalMemberPoints: -1 });
 }
 
 /**
@@ -335,8 +393,16 @@ async function getGangLeaderboard(guildId) {
  * @returns {Promise<Array>} - Array of gangs with weekly stats
  */
 async function getWeeklyGangLeaderboard(guildId) {
-    return Gang.find({ guildId: guildId })
-        .sort({ weeklyTotalScore: -1 });
+    const gangs = await Gang.find({ guildId: guildId });
+
+    // Sort manually if .sort() is not available on the returned object
+    if (!gangs.sort) {
+        // Sort by weekly member points
+        return [...gangs].sort((a, b) => b.weeklyMemberPoints - a.weeklyMemberPoints);
+    }
+
+    // If sort is available, use it (MongoDB implementation)
+    return gangs.sort({ weeklyMemberPoints: -1 });
 }
 
 /**
@@ -350,14 +416,23 @@ async function getGangMemberLeaderboard(gangId, limit = 100, skip = 0) {
     console.log(`Getting gang member leaderboard for gangId: ${gangId}, limit: ${limit}, skip: ${skip}`);
 
     // Get the users
-    const users = await User.find({ currentGangId: gangId, points: { $gt: 0 } })
-        .sort({ points: -1 })
-        .skip(skip)
-        .limit(limit);
+    const users = await User.find({ currentGangId: gangId, points: { $gt: 0 } });
 
     console.log(`Found ${users.length} users for gang ${gangId}`);
 
-    return users;
+    // Sort manually if .sort() is not available on the returned object
+    if (!users.sort) {
+        // Create a copy we can sort
+        const sortedUsers = [...users].sort((a, b) => b.points - a.points);
+        // Handle pagination
+        return sortedUsers.slice(skip, skip + limit);
+    }
+
+    // If sort is available, use it (MongoDB implementation)
+    return users
+        .sort({ points: -1 })
+        .skip(skip)
+        .limit(limit);
 }
 
 /**
@@ -368,7 +443,18 @@ async function getGangMemberLeaderboard(gangId, limit = 100, skip = 0) {
  * @returns {Promise<Array>} - Array of top users in the gang for this week
  */
 async function getWeeklyGangMemberLeaderboard(gangId, limit = 100, skip = 0) {
-    return User.find({ currentGangId: gangId, weeklyPoints: { $gt: 0 } })
+    const users = await User.find({ currentGangId: gangId, weeklyPoints: { $gt: 0 } });
+
+    // Sort manually if .sort() is not available on the returned object
+    if (!users.sort) {
+        // Create a copy we can sort
+        const sortedUsers = [...users].sort((a, b) => b.weeklyPoints - a.weeklyPoints);
+        // Handle pagination
+        return sortedUsers.slice(skip, skip + limit);
+    }
+
+    // If sort is available, use it (MongoDB implementation)
+    return users
         .sort({ weeklyPoints: -1 })
         .skip(skip)
         .limit(limit);
@@ -574,42 +660,36 @@ async function resetUserPoints(userId) {
 }
 
 /**
- * Tracks a message for activity points
- * @param {Object} message - Discord.js message object
- * @returns {Object|null} Result of the operation, or null if no points were awarded
+ * Tracks a message in a gang channel and awards points to the user and gang.
+ * @param {Object} message - The Discord message object
  */
-async function trackMessage(message) {
+const trackMessage = async (message) => {
     try {
-        const { guild, author, channel, content } = message;
-        const userId = author.id;
-        const guildId = guild.id;
-        const channelId = channel.id;
-        const messageContent = content;
+        // Extract info from message
+        const userId = message.author.id;
+        const author = message.author;
+        const channelId = message.channel.id;
+        const guildId = message.guild.id;
+        const messageContent = message.content;
 
-        console.log(`Tracking message from ${author.tag} in channel ${channel.name}`);
-
-        // Get the gang channel IDs from config
-        const { gangsConfig } = require('../config/gangs');
-
-        // Find which gang this channel belongs to
-        const gangConfig = gangsConfig.find(g => g.channelId.trim() === channelId);
-
+        // Find the gang by channel ID
+        const gangConfig = gangsConfig.find(gang => gang.channelId === channelId);
         if (!gangConfig) {
-            return null;
+            return null; // Not a gang channel
         }
 
+        console.log(`Tracking message from ${author.username} in channel ${gangConfig.name}`);
         const gangId = gangConfig.gangId;
 
-        // Use findOneAndUpdate to atomically get or create the gang to prevent race conditions
-        let gang = await Gang.findOneAndUpdate(
+        // Create or update the gang in the database
+        let gangUpdate = await Gang.findOneAndUpdate(
             { gangId },
             {
-                $setOnInsert: {
-                    guildId,
-                    gangId,
+                $set: {
                     name: gangConfig.name,
+                    guildId,
+                    channelId,
                     roleId: gangConfig.roleId,
-                    channelId: gangConfig.channelId
                 }
             },
             {
@@ -618,179 +698,188 @@ async function trackMessage(message) {
             }
         );
 
-        // Use findOne with session to prevent race conditions when reading user data
-        const session = await mongoose.startSession();
-        let result = null;
+        // Check if user exists
+        let user = await User.findOne({ discordId: userId });
 
-        try {
-            await session.withTransaction(async () => {
-                // Check if user exists
-                let user = await User.findOne({ discordId: userId }).session(session);
-
-                if (!user) {
-                    // Create the user in the database and assign to this gang
-                    user = new User({
-                        discordId: userId,
-                        username: author.username,
-                        currentGangId: gangId,
-                        currentGangName: gangConfig.name,
-                        gangId: gangId,  // For backward compatibility
-                        gangName: gangConfig.name,
-                        points: 0,
-                        weeklyPoints: 0,
-                        messageCount: 0,
-                        weeklyMessageCount: 0,
-                        gangPoints: [{
-                            gangId: gangId,
-                            gangName: gangConfig.name,
-                            points: 0,
-                            weeklyPoints: 0,
-                            pointsBreakdown: {
-                                twitter: 0,
-                                games: 0,
-                                artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
-                                other: 0
-                            },
-                            weeklyPointsBreakdown: {
-                                twitter: 0,
-                                games: 0,
-                                artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
-                                other: 0
-                            }
-                        }],
-                        recentMessages: []
-                    });
-                } else if (user.currentGangId !== gangId) {
-                    // Update user's gang
-                    user.switchGang(gangId, gangConfig.name);
-                }
-
-                // Skip if message is too short or common greeting
-                const trimmedContent = messageContent.trim();
-
-                const commonMessages = ['hi', 'hey', 'hello', 'gm', 'good morning', 'gn', 'good night', '.', '..', '...'];
-                if (trimmedContent.length < 5 || commonMessages.includes(trimmedContent.toLowerCase())) {
-                    return;
-                }
-
-                // Check for spam by looking at recent messages
-                const now = new Date();
-                const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-
-                // Filter recent messages to only include those from the last 5 minutes
-                user.recentMessages = user.recentMessages.filter(msg =>
-                    new Date(msg.timestamp) > fiveMinutesAgo
-                );
-
-                // Check for duplicate messages to prevent spam
-                const isDuplicate = user.recentMessages.some(msg =>
-                    msg.content === trimmedContent
-                );
-
-                if (isDuplicate) {
-                    // Add to recent messages but don't award points
-                    user.recentMessages.push({
-                        content: trimmedContent,
-                        timestamp: now
-                    });
-
-                    await user.save({ session });
-                    return;
-                }
-
-                // Check cooldown - only award points once per 5 minutes
-                if (user.lastActive && now - user.lastActive < 5 * 60 * 1000) {
-                    await user.save({ session }); // Save the updated recent messages without awarding points
-                    return;
-                }
-
-                // Add to user's recent messages
-                user.recentMessages.push({
-                    content: trimmedContent,
-                    timestamp: now
-                });
-
-                // Award points and update activity timestamp
-                user.points += 1;
-                user.weeklyPoints += 1;
-                user.lastActive = now;
-                user.messageCount += 1;
-                user.weeklyMessageCount += 1;
-
-                // Update user's points for this gang
-                const gangPointsIndex = user.gangPoints.findIndex(g => g.gangId === gangId);
-                if (gangPointsIndex >= 0) {
-                    user.gangPoints[gangPointsIndex].points += 1;
-                    user.gangPoints[gangPointsIndex].weeklyPoints += 1;
-                    user.gangPoints[gangPointsIndex].pointsBreakdown.gangActivity += 1;
-                    user.gangPoints[gangPointsIndex].weeklyPointsBreakdown.gangActivity += 1;
-                } else {
-                    // If user doesn't have a record for this gang, create one
-                    user.gangPoints.push({
-                        gangId: gangId,
-                        gangName: gangConfig.name,
-                        points: 1,
-                        weeklyPoints: 1,
-                        pointsBreakdown: {
-                            twitter: 0,
-                            games: 0,
-                            artAndMemes: 0,
-                            activity: 0,
-                            gangActivity: 1,
-                            other: 0
-                        },
-                        weeklyPointsBreakdown: {
-                            twitter: 0,
-                            games: 0,
-                            artAndMemes: 0,
-                            activity: 0,
-                            gangActivity: 1,
-                            other: 0
-                        }
-                    });
-                }
-
-                // Update gang activity
-                await Gang.updateOne(
-                    { gangId },
-                    {
-                        $inc: {
-                            messageCount: 1,
-                            weeklyMessageCount: 1,
-                            totalMemberPoints: 1,
-                            weeklyMemberPoints: 1,
-                            points: 1,         // Add points to gang's total
-                            weeklyPoints: 1    // Add points to gang's weekly total
-                        },
-                        $set: { lastActive: now }
+        if (!user) {
+            // Create the user in the database and assign to this gang
+            user = new User({
+                discordId: userId,
+                username: author.username,
+                currentGangId: gangId,
+                currentGangName: gangConfig.name,
+                gangId: gangId,  // For backward compatibility
+                gangName: gangConfig.name,
+                points: 0,
+                weeklyPoints: 0,
+                messageCount: 0,
+                weeklyMessageCount: 0,
+                gangPoints: [{
+                    gangId: gangId,
+                    gangName: gangConfig.name,
+                    points: 0,
+                    weeklyPoints: 0,
+                    pointsBreakdown: {
+                        games: 0,
+                        artAndMemes: 0,
+                        activity: 0,
+                        gangActivity: 0,
+                        other: 0
+                    },
+                    weeklyPointsBreakdown: {
+                        games: 0,
+                        artAndMemes: 0,
+                        activity: 0,
+                        gangActivity: 0,
+                        other: 0
                     }
-                );
+                }],
+                recentMessages: []
+            });
+        } else if (user.currentGangId !== gangId) {
+            // Update user's gang
+            user.switchGang(gangId, gangConfig.name);
+        }
 
-                await user.save({ session });
+        // Skip if message is too short or common greeting
+        const trimmedContent = messageContent.trim();
 
-                // Log activity
-                await ActivityLog.create([{
-                    guildId: guildId,
-                    targetType: 'user',
-                    targetId: userId,
-                    targetName: user.username,
-                    action: 'award',
-                    reason: 'activity',
-                    points: 1,
-                    source: 'activity'
-                }], { session });
+        const commonMessages = ['hi', 'hey', 'hello', 'gm', 'good morning', 'gn', 'good night', '.', '..', '...'];
+        if (trimmedContent.length < 5 || commonMessages.includes(trimmedContent.toLowerCase())) {
+            return;
+        }
 
-                result = user;
+        // Check for spam by looking at recent messages
+        const now = new Date();
+        const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+        // Filter recent messages to only include those from the last 5 minutes
+        user.recentMessages = user.recentMessages.filter(msg =>
+            new Date(msg.timestamp) > fiveMinutesAgo
+        );
+
+        // Check for duplicate messages to prevent spam
+        const isDuplicate = user.recentMessages.some(msg =>
+            msg.content === trimmedContent
+        );
+
+        if (isDuplicate) {
+            // Add to recent messages but don't award points
+            user.recentMessages.push({
+                content: trimmedContent,
+                timestamp: now
             });
 
-            return result;
-        } finally {
-            session.endSession();
+            await user.save();
+            return;
         }
+
+        // Check cooldown - only award points once per 5 minutes
+        if (user.lastActive && now - user.lastActive < 5 * 60 * 1000) {
+            await user.save(); // Save the updated recent messages without awarding points
+            return;
+        }
+
+        // Add to user's recent messages
+        user.recentMessages.push({
+            content: trimmedContent,
+            timestamp: now
+        });
+
+        // Award points and update activity timestamp
+        user.lastActive = now;
+        user.messageCount = (user.messageCount || 0) + 1;
+        user.weeklyMessageCount = (user.weeklyMessageCount || 0) + 1;
+
+        // Update user's points for this gang
+        const gangPointsIndex = user.gangPoints.findIndex(g => g.gangId === gangId);
+        if (gangPointsIndex >= 0) {
+            // Add 1 point to this gang's points
+            user.gangPoints[gangPointsIndex].points += 1;
+            user.gangPoints[gangPointsIndex].weeklyPoints += 1;
+            user.gangPoints[gangPointsIndex].pointsBreakdown.gangActivity += 1;
+            user.gangPoints[gangPointsIndex].weeklyPointsBreakdown.gangActivity += 1;
+
+            // Log the current state for debugging
+            console.log(`Before update: User ${user.username} has ${user.points} total points`);
+            console.log(`Gang points for ${gangConfig.name}: ${user.gangPoints[gangPointsIndex].points}`);
+
+            // If this is the user's current gang, also update their top-level points
+            if (gangId === user.currentGangId) {
+                const currentPoints = user.points || 0;
+                const currentWeeklyPoints = user.weeklyPoints || 0;
+
+                // Increment the user's top-level points instead of setting them
+                user.points = currentPoints + 1;
+                user.weeklyPoints = currentWeeklyPoints + 1;
+
+                console.log(`After update: User ${user.username} now has ${user.points} total points`);
+            }
+        } else {
+            // If user doesn't have a record for this gang, create one
+            user.gangPoints.push({
+                gangId: gangId,
+                gangName: gangConfig.name,
+                points: 1,
+                weeklyPoints: 1,
+                pointsBreakdown: {
+                    games: 0,
+                    artAndMemes: 0,
+                    activity: 0,
+                    gangActivity: 1,
+                    other: 0
+                },
+                weeklyPointsBreakdown: {
+                    games: 0,
+                    artAndMemes: 0,
+                    activity: 0,
+                    gangActivity: 1,
+                    other: 0
+                }
+            });
+
+            // If this is the user's current gang, add to their total points
+            if (gangId === user.currentGangId) {
+                const currentPoints = user.points || 0;
+                const currentWeeklyPoints = user.weeklyPoints || 0;
+
+                user.points = currentPoints + 1;
+                user.weeklyPoints = currentWeeklyPoints + 1;
+            }
+        }
+
+        // Update gang activity - only track message counts, not points
+        await Gang.updateOne(
+            { gangId },
+            {
+                $inc: {
+                    messageCount: 1,          // Track message count
+                    weeklyMessageCount: 1     // Track weekly message count
+                },
+                $set: { lastActive: now }
+            }
+        );
+
+        // Update the gang to ensure total member points are correctly calculated
+        // These functions will calculate the sum of user points correctly
+        await updateGangTotalPoints(gangId);
+        await updateGangWeeklyPoints(gangId);
+
+        await user.save();
+
+        // Log activity
+        await ActivityLog.create({
+            guildId: guildId,
+            targetType: 'user',
+            targetId: userId,
+            targetName: user.username,
+            action: 'award',
+            reason: 'activity',
+            points: 1,
+            source: 'activity'
+        });
+
+        return user;
     } catch (error) {
         console.error('Error tracking message:', error);
         return null;
@@ -824,9 +913,177 @@ async function cleanupOldGangs() {
     }
 }
 
+/**
+ * Fetch all members of a gang based on their Discord role
+ * @param {Object} client - Discord client
+ * @param {String} guildId - Discord server ID
+ * @param {String} gangId - Gang ID
+ * @returns {Promise<Object>} - Results with members and counts
+ */
+async function fetchGangMembersByRole(client, guildId, gangId) {
+    try {
+        // Get the gang configuration
+        const gangConfig = gangsConfig.find(g => g.gangId === gangId);
+        if (!gangConfig) {
+            throw new Error(`Gang with ID ${gangId} not found in configuration`);
+        }
+
+        // Fetch the guild with force refresh
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) {
+            throw new Error(`Guild with ID ${guildId} not found`);
+        }
+
+        console.log(`Working with guild: ${guild.name} (${guild.id})`);
+
+        // Force a fresh fetch of all members
+        console.log('Fetching all guild members...');
+        await guild.members.fetch({ force: true });
+        console.log(`Guild has ${guild.members.cache.size} members in cache after fetch`);
+
+        // Debug info for all roles
+        console.log(`Guild has ${guild.roles.cache.size} roles in cache`);
+        guild.roles.cache.forEach(role => {
+            console.log(`Role: ${role.name} (${role.id}) with ${role.members.size} members`);
+        });
+
+        // Get the role ID from config
+        const roleId = gangConfig.roleId;
+        console.log(`Looking for role with ID: ${roleId}`);
+
+        // Fetch the specific role
+        await guild.roles.fetch(roleId, { force: true });
+        const role = guild.roles.cache.get(roleId);
+
+        if (!role) {
+            console.error(`Role with ID ${roleId} not found for gang ${gangConfig.name}`);
+            throw new Error(`Role with ID ${roleId} not found for gang ${gangConfig.name}`);
+        }
+
+        console.log(`Found role: ${role.name} (${role.id}) with ${role.members.size} members`);
+
+        // Get members with this role
+        const members = Array.from(role.members.values()).map(member => ({
+            id: member.user.id,
+            username: member.user.username || member.displayName,
+            displayName: member.displayName,
+            isRegistered: false
+        }));
+
+        console.log(`Extracted ${members.length} members with role ${role.name}`);
+
+        // Register or update all members found
+        for (const member of members) {
+            console.log(`Processing member: ${member.username} (${member.id})`);
+
+            try {
+                // Check if user already exists
+                let user = await User.findOne({ discordId: member.id });
+
+                if (user) {
+                    console.log(`User ${member.username} already exists in database, updating gang if needed`);
+
+                    // Update gang if different
+                    if (user.currentGangId !== gangId) {
+                        console.log(`Updating ${member.username}'s gang from ${user.currentGangName} to ${gangConfig.name}`);
+                        user.currentGangId = gangId;
+                        user.currentGangName = gangConfig.name;
+                        user.gangId = gangId; // For backward compatibility
+                        user.gangName = gangConfig.name;
+
+                        // Check if the user has gang points for this gang
+                        const existingGangPoints = user.gangPoints.find(gp => gp.gangId === gangId);
+                        if (!existingGangPoints) {
+                            user.gangPoints.push({
+                                gangId,
+                                gangName: gangConfig.name,
+                                points: 0,
+                                weeklyPoints: 0,
+                                pointsBreakdown: {
+                                    games: 0,
+                                    artAndMemes: 0,
+                                    activity: 0,
+                                    gangActivity: 0,
+                                    other: 0
+                                },
+                                weeklyPointsBreakdown: {
+                                    games: 0,
+                                    artAndMemes: 0,
+                                    activity: 0,
+                                    gangActivity: 0,
+                                    other: 0
+                                }
+                            });
+                        }
+
+                        await user.save();
+                    }
+                } else {
+                    // Create new user in database
+                    console.log(`Creating new user ${member.username} (${member.id}) in gang ${gangConfig.name}`);
+                    user = new User({
+                        discordId: member.id,
+                        username: member.username,
+                        currentGangId: gangId,
+                        currentGangName: gangConfig.name,
+                        gangId,
+                        gangName: gangConfig.name,
+                        points: 0,
+                        weeklyPoints: 0,
+                        gangPoints: [{
+                            gangId,
+                            gangName: gangConfig.name,
+                            points: 0,
+                            weeklyPoints: 0,
+                            pointsBreakdown: {
+                                games: 0,
+                                artAndMemes: 0,
+                                activity: 0,
+                                gangActivity: 0,
+                                other: 0
+                            },
+                            weeklyPointsBreakdown: {
+                                games: 0,
+                                artAndMemes: 0,
+                                activity: 0,
+                                gangActivity: 0,
+                                other: 0
+                            }
+                        }]
+                    });
+
+                    await user.save();
+                }
+            } catch (memberError) {
+                console.error(`Error processing member ${member.username}:`, memberError);
+            }
+        }
+
+        // Update gang stats
+        const gang = await Gang.findOne({ gangId });
+        if (gang) {
+            gang.memberCount = members.length;
+            await gang.save();
+
+            // Recalculate gang points
+            await updateGangTotalPoints(gangId);
+            await updateGangWeeklyPoints(gangId);
+        }
+
+        return {
+            gangId,
+            gangName: gangConfig.name,
+            memberCount: members.length,
+            members
+        };
+    } catch (error) {
+        console.error(`Error in fetchGangMembersByRole for ${gangId}:`, error);
+        throw error;
+    }
+}
+
 module.exports = {
     awardUserPoints,
-    awardGangPoints,
     registerUser,
     updateUserGang,
     updateGangTotalPoints,
@@ -842,5 +1099,6 @@ module.exports = {
     resetAllPoints,
     resetUserPoints,
     trackMessage,
-    cleanupOldGangs
+    cleanupOldGangs,
+    fetchGangMembersByRole
 }; 

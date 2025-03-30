@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const Gang = require('../models/Gang');
+const { Gang } = require('../utils/dbModels');
 const { gangsConfig } = require('../config/gangs');
 
 module.exports = {

@@ -1,8 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { EmbedBuilder } = require('discord.js');
 const { getGangMemberLeaderboard, getGangLeaderboard, getUserLeaderboard } = require('../utils/pointsManager');
-const User = require('../models/User');
-const Gang = require('../models/Gang');
+const { User, Gang } = require('../utils/dbModels');
 const { gangsConfig } = require('../config/gangs');
 
 module.exports = {
@@ -131,7 +130,17 @@ async function showLeaderboard(interaction, gangId) {
             });
 
             // Get top 10 users
-            users = await getGangMemberLeaderboard(gangId, 10, 0);
+            const result = await getGangMemberLeaderboard(gangId, 10, 0);
+
+            // Handle different possible return formats from getGangMemberLeaderboard
+            if (result && result.data) {
+                users = result.data;
+            } else if (Array.isArray(result)) {
+                users = result;
+            } else {
+                console.log("Unexpected format from getGangMemberLeaderboard:", typeof result);
+                users = [];
+            }
 
             // Find the user's rank and points
             const userEntry = await User.findOne({ discordId: userId, currentGangId: gangId });
@@ -150,7 +159,17 @@ async function showLeaderboard(interaction, gangId) {
             });
 
             // Get top 10 users
-            users = await getUserLeaderboard(guildId, 10, 0);
+            const result = await getUserLeaderboard(guildId, 10, 0);
+
+            // Handle different possible return formats from getUserLeaderboard
+            if (result && result.data) {
+                users = result.data;
+            } else if (Array.isArray(result)) {
+                users = result;
+            } else {
+                console.log("Unexpected format from getUserLeaderboard:", typeof result);
+                users = [];
+            }
 
             // Find the user's rank and points
             const userEntry = await User.findOne({ discordId: userId });
@@ -252,23 +271,26 @@ async function showGangLeaderboard(interaction) {
             return interaction.editReply('No gangs have been configured yet!');
         }
 
-        // Sort gangs by total score (gang points + member points)
-        gangs.sort((a, b) => (b.points + b.totalMemberPoints) - (a.points + a.totalMemberPoints));
+        // Sort gangs by total member points
+        gangs.sort((a, b) => b.totalMemberPoints - a.totalMemberPoints);
 
         // Create the embed
         const embed = new EmbedBuilder()
             .setColor('#0099ff')
             .setTitle('Gang Leaderboard')
-            .setDescription('Gangs ranked by total points (gang points + member points):')
+            .setDescription('Gangs ranked by total member points:')
             .setTimestamp();
 
         // Format the gang leaderboard
         let gangLeaderboardText = '';
 
         gangs.forEach((gang, index) => {
-            const totalScore = gang.points + gang.totalMemberPoints;
-            gangLeaderboardText += `**${index + 1}.** ${gang.name} - **${totalScore}** pts\n`;
-            gangLeaderboardText += `> Gang Points: ${gang.points} | Member Points: ${gang.totalMemberPoints} | Members: ${gang.memberCount}\n`;
+            const totalPoints = gang.totalMemberPoints;
+            const totalMembers = gang.memberCount || 0;
+            const totalMessages = gang.messageCount || 0;
+
+            gangLeaderboardText += `**${index + 1}.** ${gang.name} - **${totalPoints}** pts\n`;
+            gangLeaderboardText += `> Total Points: ${totalPoints} | Members: ${totalMembers} | Messages: ${totalMessages}\n`;
         });
 
         embed.addFields({ name: 'Gangs', value: gangLeaderboardText || 'No gang data available.' });

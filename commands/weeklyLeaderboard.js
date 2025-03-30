@@ -1,8 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { EmbedBuilder } = require('discord.js');
 const { getWeeklyGangMemberLeaderboard, getWeeklyGangLeaderboard, getWeeklyUserLeaderboard } = require('../utils/pointsManager');
-const User = require('../models/User');
-const Gang = require('../models/Gang');
+const { User, Gang } = require('../utils/dbModels');
 const { gangsConfig } = require('../config/gangs');
 
 module.exports = {
@@ -149,8 +148,18 @@ async function showWeeklyLeaderboard(interaction, gangId) {
                 weeklyPoints: { $gt: 0 }
             });
 
-            // Get top 10 users
-            users = await getWeeklyUserLeaderboard(guildId, 10, 0);
+            // Get top 10 users for this week
+            const result = await getWeeklyUserLeaderboard(guildId, 10, 0);
+
+            // Handle different possible return formats
+            if (result && result.data) {
+                users = result.data;
+            } else if (Array.isArray(result)) {
+                users = result;
+            } else {
+                console.log("Unexpected format from getWeeklyUserLeaderboard:", typeof result);
+                users = [];
+            }
 
             // Find the user's rank and points
             const userEntry = await User.findOne({ discordId: userId });

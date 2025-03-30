@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const Gang = require('../models/Gang');
-const User = require('../models/User');
+const { Gang, User } = require('../utils/dbModels');
 const { gangsConfig } = require('../config/gangs');
+const { fetchGangMembersByRole, updateGangTotalPoints, updateGangWeeklyPoints } = require('../utils/pointsManager');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -80,23 +80,52 @@ module.exports = {
                 await gang.save();
             }
 
-            // Get member count
-            const memberCount = await User.countDocuments({ currentGangId: gangId });
+            // Fetch all members with the gang role and register them if needed
+            try {
+                console.log(`Fetching members for gang ${gangId} using role ${gang.roleId}`);
+                const gangMembers = await fetchGangMembersByRole(
+                    interaction.client,
+                    interaction.guild.id,
+                    gangId
+                );
 
-            // Update the gang's member count if it's different
-            if (gang.memberCount !== memberCount) {
+                console.log(`Found ${gangMembers.memberCount} members in gang ${gangMembers.gangName}`);
+
+                // Update gang member count
+                gang.memberCount = gangMembers.memberCount;
+                await gang.save();
+
+                // Force update of gang points totals
+                await updateGangTotalPoints(gangId);
+                await updateGangWeeklyPoints(gangId);
+
+                // Refresh gang data after updates
+                gang = await Gang.findOne({ gangId });
+            } catch (roleError) {
+                console.error(`Error fetching gang members by role: ${roleError.message}`);
+                // Fall back to database count if role lookup fails
+                const memberCount = await User.countDocuments({ currentGangId: gangId });
                 gang.memberCount = memberCount;
                 await gang.save();
             }
 
             // Get the top 5 members for this gang
-            const topMembers = await User.find({ currentGangId: gangId })
-                .sort({ points: -1 })
-                .limit(5);
+            const users = await User.find({ currentGangId: gangId });
+
+            // Sort and limit manually
+            let topMembers = [];
+            if (users && users.data) {
+                topMembers = users.sort({ points: -1 }).limit(5).data;
+            } else if (Array.isArray(users)) {
+                topMembers = [...users].sort((a, b) => b.points - a.points).slice(0, 5);
+            } else {
+                console.log("Unexpected format from User.find:", typeof users);
+                topMembers = [];
+            }
 
             // Create the embed
-            const totalPoints = gang.points + gang.totalMemberPoints;
-            const weeklyTotalPoints = gang.weeklyPoints + gang.weeklyMemberPoints;
+            const totalPoints = gang.totalMemberPoints;
+            const weeklyTotalPoints = gang.weeklyMemberPoints;
 
             const embed = new EmbedBuilder()
                 .setColor('#0099ff')
@@ -104,13 +133,10 @@ module.exports = {
                 .setDescription(`Information about the ${gang.name} gang`)
                 .addFields(
                     { name: 'Total Points', value: `${totalPoints} points`, inline: true },
-                    { name: 'Gang Points', value: `${gang.points} points`, inline: true },
-                    { name: 'Member Points', value: `${gang.totalMemberPoints} points`, inline: true },
-                    { name: 'Weekly Total', value: `${weeklyTotalPoints} points`, inline: true },
-                    { name: 'Weekly Gang Points', value: `${gang.weeklyPoints} points`, inline: true },
-                    { name: 'Weekly Member Points', value: `${gang.weeklyMemberPoints} points`, inline: true },
-                    { name: 'Members', value: `${gang.memberCount} members`, inline: true },
-                    { name: 'Messages', value: `${gang.messageCount} messages`, inline: true },
+                    { name: 'Active Members', value: `${gang.memberCount} members`, inline: true },
+                    { name: 'Points per Member', value: `${gang.memberCount > 0 ? (totalPoints / gang.memberCount).toFixed(1) : 0} points`, inline: true },
+                    { name: 'Total Messages', value: `${gang.messageCount} messages`, inline: true },
+                    { name: 'Weekly Points', value: `${weeklyTotalPoints} points`, inline: true },
                     { name: 'Weekly Messages', value: `${gang.weeklyMessageCount} messages`, inline: true }
                 )
                 .setTimestamp()

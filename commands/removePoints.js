@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { awardUserPoints } = require('../utils/pointsManager');
-const User = require('../models/User');
+const { User } = require('../utils/dbModels');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,13 +17,12 @@ module.exports = {
                 .setMinValue(1))
         .addStringOption(option =>
             option.setName('source')
-                .setDescription('Source category to remove points from')
+                .setDescription('Source of the points')
                 .setRequired(true)
                 .addChoices(
                     { name: 'Games', value: 'games' },
                     { name: 'Art & Memes', value: 'artAndMemes' },
-                    { name: 'Twitter', value: 'twitter' },
-                    { name: 'Activity', value: 'activity' },
+                    { name: 'Discord Activity', value: 'activity' },
                     { name: 'Gang Activity', value: 'gangActivity' },
                     { name: 'Other', value: 'other' }
                 ))

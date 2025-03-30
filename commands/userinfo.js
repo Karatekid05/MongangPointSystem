@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const User = require('../models/User');
+const { User } = require('../utils/dbModels');
 const { gangsConfig } = require('../config/gangs');
 
 module.exports = {
@@ -80,5 +80,22 @@ function formatCategoryName(category) {
             return 'Other';
         default:
             return category.charAt(0).toUpperCase() + category.slice(1);
+    }
+}
+
+function formatSourceKey(key) {
+    switch (key) {
+        case 'games':
+            return 'Games';
+        case 'artAndMemes':
+            return 'Art & Memes';
+        case 'activity':
+            return 'Activity';
+        case 'gangActivity':
+            return 'Gang Activity';
+        case 'other':
+            return 'Other';
+        default:
+            return key.charAt(0).toUpperCase() + key.slice(1);
     }
 }
