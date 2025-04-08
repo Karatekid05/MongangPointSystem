@@ -10,6 +10,7 @@ config/credentials.json
 config/token.json
 google-credentials.json
 *-credentials.json
+diesel-thunder-*.json
 
 # Logs
 logs/
