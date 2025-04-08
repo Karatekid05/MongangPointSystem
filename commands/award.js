@@ -15,10 +15,9 @@ module.exports = {
                 .setDescription('Source of the points')
                 .setRequired(true)
                 .addChoices(
-                    { name: 'Games', value: 'games' },
+                    { name: 'Message Activity', value: 'messageActivity' },
+                    { name: 'Gamer', value: 'gamer' },
                     { name: 'Art & Memes', value: 'artAndMemes' },
-                    { name: 'Discord Activity', value: 'activity' },
-                    { name: 'Gang Activity', value: 'gangActivity' },
                     { name: 'Other', value: 'other' }
                 ))
         .addUserOption(option =>
@@ -60,6 +59,10 @@ async function awardPointsToUser(interaction, points, source, targetUser) {
         return interaction.editReply(`User ${targetUser.username} is not in this server.`);
     }
 
+    console.log(`Awarding points to user ${targetUser.username}`);
+    console.log(`Points: ${points}`);
+    console.log(`Source category: ${source}`);
+
     // First, ensure the user is registered with the correct gang
     await updateUserGang({
         guildId: interaction.guild.id,
@@ -85,6 +88,10 @@ async function awardPointsToUser(interaction, points, source, targetUser) {
     const pointsText = Math.abs(points) === 1 ? 'point' : 'points';
     const sourceText = formatSourceText(source);
 
+    console.log(`Points ${action} successfully`);
+    console.log(`User now has ${updatedUser.points} total points`);
+    console.log('Points breakdown:', updatedUser.gangPoints.find(g => g.gangId === updatedUser.currentGangId)?.pointsBreakdown);
+
     return interaction.editReply(
         `${Math.abs(points)} ${pointsText} ${action} to ${targetUser} in **${updatedUser.currentGangName}** for ${sourceText}.\n` +
         `They now have ${updatedUser.points} total points (${updatedUser.weeklyPoints} this week).`
@@ -98,16 +105,15 @@ async function awardPointsToUser(interaction, points, source, targetUser) {
  */
 function formatSourceText(source) {
     switch (source) {
-        case 'games':
-            return 'Games participation';
+        case 'messageActivity':
+            return 'Message Activity';
+        case 'gamer':
+            return 'Gamer';
         case 'artAndMemes':
-            return 'Art & memes creation';
-        case 'activity':
-            return 'Discord activity';
-        case 'gangActivity':
-            return 'Gang activity';
+            return 'Art & Memes';
         case 'other':
+            return 'Other';
         default:
-            return 'Other contribution';
+            return source;
     }
 } 

@@ -191,7 +191,169 @@ async function appendPointLog(logData, spreadsheetId, sheetName = 'Points Log') 
     }
 }
 
+/**
+ * Exporta o leaderboard semanal para uma nova aba no Google Sheets
+ * @param {Object} options - Opções
+ * @param {String} options.spreadsheetId - ID da planilha do Google
+ * @param {Array} options.gangLeaderboard - Array com dados do leaderboard de gangs
+ * @param {Array} options.userLeaderboard - Array com dados do leaderboard de usuários
+ * @param {Number} options.weekNumber - Número da semana
+ * @returns {Promise<Object>} - Resultado da exportação
+ */
+async function exportWeeklyLeaderboard(options) {
+    if (!options.spreadsheetId) {
+        throw new Error('ID da planilha do Google é obrigatório');
+    }
+
+    try {
+        const authClient = await initAuth();
+        const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+        // Get existing sheets to find the next available week number
+        const spreadsheet = await sheets.spreadsheets.get({
+            spreadsheetId: options.spreadsheetId
+        });
+
+        const existingSheets = spreadsheet.data.sheets.map(sheet => sheet.properties.title);
+        console.log('Existing sheets:', existingSheets);
+
+        // Find the highest week number
+        let highestWeek = 0;
+        existingSheets.forEach(title => {
+            if (title.startsWith('Week_')) {
+                const weekNum = parseInt(title.replace('Week_', ''));
+                if (!isNaN(weekNum) && weekNum > highestWeek) {
+                    highestWeek = weekNum;
+                }
+            }
+        });
+
+        // Use the next week number
+        const nextWeek = highestWeek + 1;
+        const sheetName = `Week_${nextWeek}`;
+        console.log(`Creating new sheet: ${sheetName}`);
+
+        // Criar nova aba para a semana
+        await ensureSheetExists(sheets, options.spreadsheetId, sheetName);
+
+        // Preparar dados do leaderboard de gangs
+        const gangHeaders = [
+            'Rank', 'Gang', 'Total Weekly Points', 'Member Points', 'Gang Points', 'Members',
+            'Message Activity', 'Gamer', 'Art & Memes', 'Other'
+        ];
+        const gangRows = options.gangLeaderboard.map((gang, index) => {
+            const breakdown = gang.pointsBreakdown || {};
+            return [
+                (index + 1).toString(),
+                gang.name || 'Unknown',
+                (gang.totalWeeklyPoints || 0).toString(),
+                (gang.weeklyMemberPoints || 0).toString(),
+                (gang.weeklyPoints || 0).toString(),
+                (gang.memberCount || 0).toString(),
+                (breakdown.messageActivity || 0).toString(),
+                (breakdown.gamer || 0).toString(),
+                (breakdown.artAndMemes || 0).toString(),
+                (breakdown.other || 0).toString()
+            ];
+        });
+
+        // Preparar dados do leaderboard de usuários
+        const userHeaders = ['Rank', 'User', 'Gang', 'Weekly Points'];
+        const userRows = options.userLeaderboard.map((user, index) => {
+            return [
+                (index + 1).toString(),
+                user.username || 'Unknown',
+                user.currentGangName || 'No Gang',
+                (user.weeklyPoints || 0).toString()
+            ];
+        });
+
+        // Combinar todos os dados
+        const values = [
+            [`Gang Leaderboard - Week ${nextWeek}`],
+            gangHeaders,
+            ...gangRows,
+            [], // Linha vazia para separação
+            [`User Leaderboard - Week ${nextWeek}`],
+            userHeaders,
+            ...userRows
+        ];
+
+        // Escrever na planilha
+        const result = await sheets.spreadsheets.values.update({
+            spreadsheetId: options.spreadsheetId,
+            range: `${sheetName}!A1`,
+            valueInputOption: 'RAW',
+            resource: { values }
+        });
+
+        console.log(`Successfully wrote ${values.length} rows to sheet ${sheetName}`);
+
+        // Get the sheet ID for formatting
+        const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+        const sheetId = sheet ? sheet.properties.sheetId : null;
+
+        if (sheetId) {
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: options.spreadsheetId,
+                resource: {
+                    requests: [
+                        // Formatar cabeçalhos
+                        {
+                            repeatCell: {
+                                range: {
+                                    sheetId: sheetId,
+                                    startRowIndex: 0,
+                                    endRowIndex: 2,
+                                    startColumnIndex: 0,
+                                    endColumnIndex: 10
+                                },
+                                cell: {
+                                    userEnteredFormat: {
+                                        backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                                        textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }
+                                    }
+                                },
+                                fields: 'userEnteredFormat(backgroundColor,textFormat)'
+                            }
+                        },
+                        // Ajustar largura das colunas
+                        {
+                            autoResizeDimensions: {
+                                dimensions: {
+                                    sheetId: sheetId,
+                                    dimension: 'COLUMNS',
+                                    startIndex: 0,
+                                    endIndex: 10
+                                }
+                            }
+                        }
+                    ]
+                }
+            });
+            console.log('Successfully formatted sheet');
+        }
+
+        return {
+            success: true,
+            sheetName,
+            weekNumber: nextWeek,
+            updatedCells: result.data.updatedCells
+        };
+    } catch (error) {
+        console.error('Erro ao exportar leaderboard semanal para Google Sheets:', error);
+        if (error.stack) {
+            console.error('Stack trace:', error.stack);
+        }
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
 module.exports = {
     exportPointsLog,
-    appendPointLog
+    appendPointLog,
+    exportWeeklyLeaderboard
 }; 

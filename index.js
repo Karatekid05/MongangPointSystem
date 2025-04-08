@@ -25,52 +25,10 @@ client.options.cacheRoles = true;
 client.commands = new Collection();
 client.buttons = new Collection();
 
-// Initialize in-memory database
-console.log('Setting up in-memory database for development...');
-const inMemoryDb = require('./utils/inMemoryDb');
-
-// Set global variables for the in-memory database
-global.User = inMemoryDb.User;
-global.Gang = inMemoryDb.Gang;
-global.ActivityLog = inMemoryDb.ActivityLog;
-
-// Initialize the in-memory database with test data
-console.log('Initializing in-memory database...');
-const { gangsConfig } = require('./config/gangs');
-
-// Create gangs in memory
-(async () => {
-    console.log('Creating gangs...');
-    for (const gangConfig of gangsConfig) {
-        await inMemoryDb.Gang.create({
-            gangId: gangConfig.gangId,
-            name: gangConfig.name,
-            guildId: process.env.GUILD_ID,
-            channelId: gangConfig.channelId,
-            roleId: gangConfig.roleId,
-            points: 0,
-            weeklyPoints: 0,
-            memberCount: 0,
-            totalMemberPoints: 0,
-            weeklyMemberPoints: 0,
-            messageCount: 0,
-            weeklyMessageCount: 0,
-            pointsBreakdown: {
-                events: 0,
-                competitions: 0,
-                other: 0
-            },
-            weeklyPointsBreakdown: {
-                events: 0,
-                competitions: 0,
-                other: 0
-            }
-        });
-        console.log(`Created gang: ${gangConfig.name}`);
-    }
-
-    // Note: Test users creation has been removed to prevent cluttering the database
-})();
+// Initialize the database connection with MongoDB
+console.log('Setting up MongoDB database connection...');
+// The database connection is handled in the dbModels.js file
+require('./utils/dbModels');
 
 // Load command files
 const commandsPath = path.join(__dirname, 'commands');

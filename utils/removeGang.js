@@ -43,17 +43,15 @@ async function removeGang() {
                         points: 0,
                         weeklyPoints: 0,
                         pointsBreakdown: {
-                            games: 0,
+                            messageActivity: 0,
+                            gamer: 0,
                             artAndMemes: 0,
-                            activity: 0,
-                            gangActivity: 0,
                             other: 0
                         },
                         weeklyPointsBreakdown: {
-                            games: 0,
+                            messageActivity: 0,
+                            gamer: 0,
                             artAndMemes: 0,
-                            activity: 0,
-                            gangActivity: 0,
                             other: 0
                         }
                     });

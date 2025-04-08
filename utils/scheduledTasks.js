@@ -1,5 +1,15 @@
 const cron = require('node-cron');
-const { resetWeeklyPoints } = require('./pointsManager');
+const { resetWeeklyPoints, getWeeklyGangLeaderboard, getWeeklyUserLeaderboard } = require('./pointsManager');
+const { exportWeeklyLeaderboard } = require('./sheetsLogger');
+
+// Função para obter o número da semana atual
+function getWeekNumber() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const diff = now - start;
+    const oneWeek = 1000 * 60 * 60 * 24 * 7;
+    return Math.floor(diff / oneWeek);
+}
 
 /**
  * Initialize scheduled tasks
@@ -17,6 +27,32 @@ function initScheduledTasks(client) {
             // For each guild the bot is in
             client.guilds.cache.forEach(async (guild) => {
                 try {
+                    // Primeiro, obter os leaderboards antes do reset
+                    const [gangLeaderboard, userLeaderboard] = await Promise.all([
+                        getWeeklyGangLeaderboard(guild.id),
+                        getWeeklyUserLeaderboard(guild.id)
+                    ]);
+
+                    // Exportar para o Google Sheets
+                    const weekNumber = getWeekNumber();
+                    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+                    if (spreadsheetId) {
+                        try {
+                            const exportResult = await exportWeeklyLeaderboard({
+                                spreadsheetId,
+                                gangLeaderboard,
+                                userLeaderboard,
+                                weekNumber
+                            });
+
+                            console.log(`Weekly leaderboard exported to sheet: ${exportResult.sheetName}`);
+                        } catch (exportError) {
+                            console.error('Error exporting weekly leaderboard:', exportError);
+                        }
+                    }
+
+                    // Agora fazer o reset dos pontos
                     const results = await resetWeeklyPoints(guild.id);
                     console.log(`Weekly reset for ${guild.name} (${guild.id}): Reset ${results.usersReset} users and ${results.gangsReset} gangs`);
 
@@ -29,7 +65,8 @@ function initScheduledTasks(client) {
                         );
 
                     if (notificationChannel) {
-                        notificationChannel.send('Weekly points have been reset! Starting a new week of competition. 🏆');
+                        const weeklySheet = spreadsheetId ? `\nLeaderboard da semana anterior disponível na aba Week_${weekNumber} da planilha!` : '';
+                        notificationChannel.send(`Weekly points have been reset! Starting a new week of competition. 🏆${weeklySheet}`);
                     }
                 } catch (err) {
                     console.error(`Error resetting weekly points for guild ${guild.id}:`, err);

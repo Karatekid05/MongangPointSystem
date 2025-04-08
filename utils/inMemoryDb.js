@@ -51,46 +51,60 @@ const userMethods = {
                             points: 0,
                             weeklyPoints: 0,
                             pointsBreakdown: {
-                                games: 0,
+                                messageActivity: 0,
+                                gamer: 0,
                                 artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
                                 other: 0
                             },
                             weeklyPointsBreakdown: {
-                                games: 0,
+                                messageActivity: 0,
+                                gamer: 0,
                                 artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
                                 other: 0
                             }
                         };
                         this.gangPoints.push(gangPoints);
                     }
 
-                    // Add the points to this specific gang
+                    // Add points to the gang
                     gangPoints.points += points;
                     gangPoints.weeklyPoints += points;
 
-                    // Update the proper category
-                    if (source === 'games') {
-                        gangPoints.pointsBreakdown.games += points;
-                        gangPoints.weeklyPointsBreakdown.games += points;
-                    } else if (source === 'artAndMemes') {
-                        gangPoints.pointsBreakdown.artAndMemes += points;
-                        gangPoints.weeklyPointsBreakdown.artAndMemes += points;
-                    } else if (source === 'activity') {
-                        gangPoints.pointsBreakdown.activity += points;
-                        gangPoints.weeklyPointsBreakdown.activity += points;
-                    } else if (source === 'gangActivity') {
-                        gangPoints.pointsBreakdown.gangActivity += points;
-                        gangPoints.weeklyPointsBreakdown.gangActivity += points;
-                    } else {
-                        gangPoints.pointsBreakdown.other += points;
-                        gangPoints.weeklyPointsBreakdown.other += points;
+                    // Update breakdown based on source
+                    switch (source) {
+                        case 'messageActivity':
+                            gangPoints.pointsBreakdown.messageActivity += points;
+                            gangPoints.weeklyPointsBreakdown.messageActivity += points;
+                            break;
+                        case 'gamer':
+                            gangPoints.pointsBreakdown.gamer += points;
+                            gangPoints.weeklyPointsBreakdown.gamer += points;
+                            break;
+                        case 'artAndMemes':
+                            gangPoints.pointsBreakdown.artAndMemes += points;
+                            gangPoints.weeklyPointsBreakdown.artAndMemes += points;
+                            break;
+                        default:
+                            gangPoints.pointsBreakdown.other += points;
+                            gangPoints.weeklyPointsBreakdown.other += points;
                     }
 
-                    // If this is the user's current gang, update their total points
+                    // Ensure no category goes below 0
+                    const categories = ['messageActivity', 'gamer', 'artAndMemes', 'other'];
+                    for (const category of categories) {
+                        if (gangPoints.pointsBreakdown[category] < 0) {
+                            gangPoints.pointsBreakdown[category] = 0;
+                        }
+                        if (gangPoints.weeklyPointsBreakdown[category] < 0) {
+                            gangPoints.weeklyPointsBreakdown[category] = 0;
+                        }
+                    }
+
+                    // Recalculate total points from breakdown
+                    gangPoints.points = Object.values(gangPoints.pointsBreakdown).reduce((a, b) => a + b, 0);
+                    gangPoints.weeklyPoints = Object.values(gangPoints.weeklyPointsBreakdown).reduce((a, b) => a + b, 0);
+
+                    // If this is the user's current gang, update their master points total
                     if (gangId === this.currentGangId) {
                         console.log(`Adding ${points} points to user (from source: ${source})`);
                         console.log(`Before update: User has ${this.points} total points`);
@@ -139,17 +153,15 @@ const userMethods = {
                             points: 0,
                             weeklyPoints: 0,
                             pointsBreakdown: {
-                                games: 0,
+                                messageActivity: 0,
+                                gamer: 0,
                                 artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
                                 other: 0
                             },
                             weeklyPointsBreakdown: {
-                                games: 0,
+                                messageActivity: 0,
+                                gamer: 0,
                                 artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
                                 other: 0
                             }
                         });
@@ -323,42 +335,58 @@ const userMethods = {
                     points: 0,
                     weeklyPoints: 0,
                     pointsBreakdown: {
-                        games: 0,
+                        messageActivity: 0,
+                        gamer: 0,
                         artAndMemes: 0,
-                        activity: 0,
-                        gangActivity: 0,
                         other: 0
                     },
                     weeklyPointsBreakdown: {
-                        games: 0,
+                        messageActivity: 0,
+                        gamer: 0,
                         artAndMemes: 0,
-                        activity: 0,
-                        gangActivity: 0,
                         other: 0
                     }
                 };
                 this.gangPoints.push(gangPoints);
             }
 
+            // Add points to the gang
             gangPoints.points += points;
             gangPoints.weeklyPoints += points;
 
-            if (source === 'games') {
-                gangPoints.pointsBreakdown.games += points;
-                gangPoints.weeklyPointsBreakdown.games += points;
-            } else if (source === 'artAndMemes') {
-                gangPoints.pointsBreakdown.artAndMemes += points;
-                gangPoints.weeklyPointsBreakdown.artAndMemes += points;
-            } else if (source === 'activity') {
-                gangPoints.pointsBreakdown.activity += points;
-                gangPoints.weeklyPointsBreakdown.activity += points;
-            } else if (source === 'gangActivity') {
-                gangPoints.pointsBreakdown.gangActivity += points;
-                gangPoints.weeklyPointsBreakdown.gangActivity += points;
-            } else {
-                gangPoints.pointsBreakdown.other += points;
-                gangPoints.weeklyPointsBreakdown.other += points;
+            // Update breakdown based on source
+            switch (source) {
+                case 'messageActivity':
+                    gangPoints.pointsBreakdown.messageActivity += points;
+                    gangPoints.weeklyPointsBreakdown.messageActivity += points;
+                    break;
+                case 'gamer':
+                    gangPoints.pointsBreakdown.gamer += points;
+                    gangPoints.weeklyPointsBreakdown.gamer += points;
+                    break;
+                case 'artAndMemes':
+                    gangPoints.pointsBreakdown.artAndMemes += points;
+                    gangPoints.weeklyPointsBreakdown.artAndMemes += points;
+                    break;
+                default:
+                    gangPoints.pointsBreakdown.other += points;
+                    gangPoints.weeklyPointsBreakdown.other += points;
             }
+
+            // Ensure no category goes below 0
+            const categories = ['messageActivity', 'gamer', 'artAndMemes', 'other'];
+            for (const category of categories) {
+                if (gangPoints.pointsBreakdown[category] < 0) {
+                    gangPoints.pointsBreakdown[category] = 0;
+                }
+                if (gangPoints.weeklyPointsBreakdown[category] < 0) {
+                    gangPoints.weeklyPointsBreakdown[category] = 0;
+                }
+            }
+
+            // Recalculate total points from breakdown
+            gangPoints.points = Object.values(gangPoints.pointsBreakdown).reduce((a, b) => a + b, 0);
+            gangPoints.weeklyPoints = Object.values(gangPoints.weeklyPointsBreakdown).reduce((a, b) => a + b, 0);
 
             // If this is the user's current gang, update their master points total
             if (gangId === this.currentGangId) {
@@ -405,17 +433,15 @@ const userMethods = {
                     points: 0,
                     weeklyPoints: 0,
                     pointsBreakdown: {
-                        games: 0,
+                        messageActivity: 0,
+                        gamer: 0,
                         artAndMemes: 0,
-                        activity: 0,
-                        gangActivity: 0,
                         other: 0
                     },
                     weeklyPointsBreakdown: {
-                        games: 0,
+                        messageActivity: 0,
+                        gamer: 0,
                         artAndMemes: 0,
-                        activity: 0,
-                        gangActivity: 0,
                         other: 0
                     }
                 });
@@ -805,42 +831,58 @@ function User(data) {
                 points: 0,
                 weeklyPoints: 0,
                 pointsBreakdown: {
-                    games: 0,
+                    messageActivity: 0,
+                    gamer: 0,
                     artAndMemes: 0,
-                    activity: 0,
-                    gangActivity: 0,
                     other: 0
                 },
                 weeklyPointsBreakdown: {
-                    games: 0,
+                    messageActivity: 0,
+                    gamer: 0,
                     artAndMemes: 0,
-                    activity: 0,
-                    gangActivity: 0,
                     other: 0
                 }
             };
             this.gangPoints.push(gangPoints);
         }
 
+        // Add points to the gang
         gangPoints.points += points;
         gangPoints.weeklyPoints += points;
 
-        if (source === 'games') {
-            gangPoints.pointsBreakdown.games += points;
-            gangPoints.weeklyPointsBreakdown.games += points;
-        } else if (source === 'artAndMemes') {
-            gangPoints.pointsBreakdown.artAndMemes += points;
-            gangPoints.weeklyPointsBreakdown.artAndMemes += points;
-        } else if (source === 'activity') {
-            gangPoints.pointsBreakdown.activity += points;
-            gangPoints.weeklyPointsBreakdown.activity += points;
-        } else if (source === 'gangActivity') {
-            gangPoints.pointsBreakdown.gangActivity += points;
-            gangPoints.weeklyPointsBreakdown.gangActivity += points;
-        } else {
-            gangPoints.pointsBreakdown.other += points;
-            gangPoints.weeklyPointsBreakdown.other += points;
+        // Update breakdown based on source
+        switch (source) {
+            case 'messageActivity':
+                gangPoints.pointsBreakdown.messageActivity += points;
+                gangPoints.weeklyPointsBreakdown.messageActivity += points;
+                break;
+            case 'gamer':
+                gangPoints.pointsBreakdown.gamer += points;
+                gangPoints.weeklyPointsBreakdown.gamer += points;
+                break;
+            case 'artAndMemes':
+                gangPoints.pointsBreakdown.artAndMemes += points;
+                gangPoints.weeklyPointsBreakdown.artAndMemes += points;
+                break;
+            default:
+                gangPoints.pointsBreakdown.other += points;
+                gangPoints.weeklyPointsBreakdown.other += points;
         }
+
+        // Ensure no category goes below 0
+        const categories = ['messageActivity', 'gamer', 'artAndMemes', 'other'];
+        for (const category of categories) {
+            if (gangPoints.pointsBreakdown[category] < 0) {
+                gangPoints.pointsBreakdown[category] = 0;
+            }
+            if (gangPoints.weeklyPointsBreakdown[category] < 0) {
+                gangPoints.weeklyPointsBreakdown[category] = 0;
+            }
+        }
+
+        // Recalculate total points from breakdown
+        gangPoints.points = Object.values(gangPoints.pointsBreakdown).reduce((a, b) => a + b, 0);
+        gangPoints.weeklyPoints = Object.values(gangPoints.weeklyPointsBreakdown).reduce((a, b) => a + b, 0);
 
         // If this is the user's current gang, update their master points total
         if (gangId === this.currentGangId) {
@@ -887,17 +929,15 @@ function User(data) {
                 points: 0,
                 weeklyPoints: 0,
                 pointsBreakdown: {
-                    games: 0,
+                    messageActivity: 0,
+                    gamer: 0,
                     artAndMemes: 0,
-                    activity: 0,
-                    gangActivity: 0,
                     other: 0
                 },
                 weeklyPointsBreakdown: {
-                    games: 0,
+                    messageActivity: 0,
+                    gamer: 0,
                     artAndMemes: 0,
-                    activity: 0,
-                    gangActivity: 0,
                     other: 0
                 }
             });

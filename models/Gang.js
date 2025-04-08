@@ -39,14 +39,16 @@ const gangSchema = new mongoose.Schema({
     },
     // Track different point sources for the gang
     pointsBreakdown: {
-        events: { type: Number, default: 0 },
-        competitions: { type: Number, default: 0 },
+        messageActivity: { type: Number, default: 0 },
+        gamer: { type: Number, default: 0 },
+        artAndMemes: { type: Number, default: 0 },
         other: { type: Number, default: 0 }
     },
     // Weekly points breakdown
     weeklyPointsBreakdown: {
-        events: { type: Number, default: 0 },
-        competitions: { type: Number, default: 0 },
+        messageActivity: { type: Number, default: 0 },
+        gamer: { type: Number, default: 0 },
+        artAndMemes: { type: Number, default: 0 },
         other: { type: Number, default: 0 }
     },
     // Cache of total member points for quicker leaderboard generation

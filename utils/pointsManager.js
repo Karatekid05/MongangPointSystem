@@ -35,15 +35,26 @@ async function awardUserPoints(options) {
     console.log(`Awarding ${options.points} points to user ${options.username} in gang ${user.currentGangName}`);
     console.log(`Before award: User has ${user.points} total points, gang has points across all members`);
 
+    // Map old source categories to new ones
+    let mappedSource = options.source;
+    if (options.source === 'activity') {
+        mappedSource = 'messageActivity';
+    } else if (options.source === 'games') {
+        mappedSource = 'gamer';
+    } else if (options.source === 'gangActivity' || options.source === 'twitter') {
+        mappedSource = 'other';
+    }
+
     // Award points to the user's current gang
     const updatedGangPoints = user.addPointsToGang(
         user.currentGangId,
         user.currentGangName,
         options.points,
-        options.source
+        mappedSource
     );
 
     console.log(`User now has ${user.points} total points and ${user.weeklyPoints} weekly points`);
+    console.log(`Points awarded in category: ${mappedSource}`);
 
     // This should update the data in the in-memory database
     await user.save();
@@ -56,7 +67,7 @@ async function awardUserPoints(options) {
         targetName: options.username,
         action: options.points >= 0 ? 'award' : 'deduct',
         points: options.points,
-        source: options.source,
+        source: mappedSource,
         awardedBy: options.awardedBy || null,
         awardedByUsername: options.awardedByUsername || null,
         reason: options.reason || null
@@ -80,6 +91,7 @@ async function awardUserPoints(options) {
 
     // Verify the points were updated correctly
     console.log(`After updates: User ${updatedUser.username} has ${updatedUser.points} total points`);
+    console.log('Points breakdown:', updatedUser.gangPoints.find(g => g.gangId === user.currentGangId)?.pointsBreakdown);
 
     // Get the updated gang to verify
     const gang = await Gang.findOne({ gangId: user.currentGangId });
@@ -238,7 +250,11 @@ async function updateGangTotalPoints(gangId) {
 
             // Get the updated gang to verify
             const updatedGang = await Gang.findOne({ gangId: gangId });
-            console.log(`After update, gang ${gangId} has totalMemberPoints: ${updatedGang.totalMemberPoints}`);
+            if (updatedGang) {
+                console.log(`After update, gang ${gangId} has totalMemberPoints: ${updatedGang.totalMemberPoints}`);
+            } else {
+                console.log(`Gang ${gangId} not found after update`);
+            }
         } else {
             console.log(`No users found in gang ${gangId} or aggregation returned empty result`);
 
@@ -286,7 +302,11 @@ async function updateGangWeeklyPoints(gangId) {
 
             // Get the updated gang to verify
             const updatedGang = await Gang.findOne({ gangId: gangId });
-            console.log(`After update, gang ${gangId} has weeklyMemberPoints: ${updatedGang.weeklyMemberPoints}`);
+            if (updatedGang) {
+                console.log(`After update, gang ${gangId} has weeklyMemberPoints: ${updatedGang.weeklyMemberPoints}`);
+            } else {
+                console.log(`Gang ${gangId} not found after update`);
+            }
         } else {
             console.log(`No users found in gang ${gangId} or aggregation returned empty result`);
 
@@ -352,21 +372,36 @@ async function getUserLeaderboard(guildId, limit = 100, skip = 0) {
  * @returns {Promise<Array>} - Array of top users for this week
  */
 async function getWeeklyUserLeaderboard(guildId, limit = 100, skip = 0) {
-    const users = await User.find({ guildId: guildId });
+    try {
+        console.log(`Getting weekly user leaderboard for guildId: ${guildId}`);
 
-    // Sort manually if .sort() is not available on the returned object
-    if (!users.sort) {
-        // Create a copy we can sort
-        const sortedUsers = [...users].sort((a, b) => b.weeklyPoints - a.weeklyPoints);
-        // Handle pagination
-        return sortedUsers.slice(skip, skip + limit);
+        // Get all users with weekly points > 0, sorted by weeklyPoints descending
+        const users = await User.find({
+            weeklyPoints: { $gt: 0 }
+        })
+            .select('username weeklyPoints currentGangName gangPoints')
+            .sort({ weeklyPoints: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean()
+            .exec();
+
+        console.log(`Found ${users.length} users with weekly points`);
+        for (const user of users) {
+            console.log(`User ${user.username}: ${user.weeklyPoints} points in ${user.currentGangName}`);
+            if (user.gangPoints) {
+                const currentGangPoints = user.gangPoints.find(g => g.gangId === user.currentGangId);
+                if (currentGangPoints) {
+                    console.log('Points breakdown:', currentGangPoints.weeklyPointsBreakdown);
+                }
+            }
+        }
+
+        return users;
+    } catch (error) {
+        console.error('Error getting weekly user leaderboard:', error);
+        return [];
     }
-
-    // If sort is available, use it (MongoDB implementation)
-    return users
-        .sort({ weeklyPoints: -1 })
-        .skip(skip)
-        .limit(limit);
 }
 
 /**
@@ -393,16 +428,88 @@ async function getGangLeaderboard(guildId) {
  * @returns {Promise<Array>} - Array of gangs with weekly stats
  */
 async function getWeeklyGangLeaderboard(guildId) {
-    const gangs = await Gang.find({ guildId: guildId });
+    try {
+        console.log(`Getting weekly gang leaderboard for guildId: ${guildId}`);
 
-    // Sort manually if .sort() is not available on the returned object
-    if (!gangs.sort) {
-        // Sort by weekly member points
-        return [...gangs].sort((a, b) => b.weeklyMemberPoints - a.weeklyMemberPoints);
+        // Get all gangs first
+        const gangs = await Gang.find({ guildId: guildId })
+            .sort({ weeklyPoints: -1 })
+            .lean()
+            .exec();
+
+        console.log(`Found ${gangs.length} gangs`);
+
+        // Get all users with weekly points
+        const users = await User.find({ weeklyPoints: { $gt: 0 } })
+            .select('weeklyPoints currentGangId currentGangName gangPoints')
+            .lean()
+            .exec();
+
+        console.log(`Found ${users.length} users with weekly points`);
+
+        // Calculate gang totals from user points
+        const gangTotals = {};
+        for (const user of users) {
+            if (!user.currentGangId) continue;
+
+            if (!gangTotals[user.currentGangId]) {
+                gangTotals[user.currentGangId] = {
+                    weeklyMemberPoints: 0,
+                    memberCount: 0,
+                    pointsBreakdown: {
+                        messageActivity: 0,
+                        gamer: 0,
+                        artAndMemes: 0,
+                        other: 0
+                    }
+                };
+            }
+
+            // Add user's weekly points to gang total
+            gangTotals[user.currentGangId].weeklyMemberPoints += user.weeklyPoints;
+            gangTotals[user.currentGangId].memberCount++;
+
+            // Add points breakdown
+            const gangPoints = user.gangPoints.find(g => g.gangId === user.currentGangId);
+            if (gangPoints && gangPoints.weeklyPointsBreakdown) {
+                gangTotals[user.currentGangId].pointsBreakdown.messageActivity += gangPoints.weeklyPointsBreakdown.activity || 0;
+                gangTotals[user.currentGangId].pointsBreakdown.gamer += gangPoints.weeklyPointsBreakdown.gamer || 0;
+                gangTotals[user.currentGangId].pointsBreakdown.artAndMemes += gangPoints.weeklyPointsBreakdown.artAndMemes || 0;
+                gangTotals[user.currentGangId].pointsBreakdown.other += (gangPoints.weeklyPointsBreakdown.other || 0) +
+                    (gangPoints.weeklyPointsBreakdown.gangActivity || 0);
+            }
+        }
+
+        console.log('Gang totals calculated from users:', gangTotals);
+
+        // Update gang points with calculated totals
+        const updatedGangs = gangs.map(gang => ({
+            ...gang,
+            weeklyMemberPoints: (gangTotals[gang.gangId] || {}).weeklyMemberPoints || 0,
+            weeklyPoints: gang.weeklyPoints || 0,
+            totalWeeklyPoints: ((gangTotals[gang.gangId] || {}).weeklyMemberPoints || 0) + (gang.weeklyPoints || 0),
+            pointsBreakdown: (gangTotals[gang.gangId] || {}).pointsBreakdown || {
+                messageActivity: 0,
+                gamer: 0,
+                artAndMemes: 0,
+                other: 0
+            }
+        }));
+
+        // Sort by total weekly points
+        updatedGangs.sort((a, b) => b.totalWeeklyPoints - a.totalWeeklyPoints);
+
+        console.log(`Found ${updatedGangs.length} gangs for weekly leaderboard`);
+        for (const gang of updatedGangs) {
+            console.log(`Gang ${gang.name}: ${gang.weeklyMemberPoints} member points + ${gang.weeklyPoints} gang points = ${gang.totalWeeklyPoints} total`);
+            console.log('Points breakdown:', gang.pointsBreakdown);
+        }
+
+        return updatedGangs;
+    } catch (error) {
+        console.error('Error getting weekly gang leaderboard:', error);
+        return [];
     }
-
-    // If sort is available, use it (MongoDB implementation)
-    return gangs.sort({ weeklyMemberPoints: -1 });
 }
 
 /**
@@ -794,11 +901,11 @@ const trackMessage = async (message) => {
         // Update user's points for this gang
         const gangPointsIndex = user.gangPoints.findIndex(g => g.gangId === gangId);
         if (gangPointsIndex >= 0) {
-            // Add 1 point to this gang's points
+            // Add 1 point to this gang's points and categorize as message activity
             user.gangPoints[gangPointsIndex].points += 1;
             user.gangPoints[gangPointsIndex].weeklyPoints += 1;
-            user.gangPoints[gangPointsIndex].pointsBreakdown.gangActivity += 1;
-            user.gangPoints[gangPointsIndex].weeklyPointsBreakdown.gangActivity += 1;
+            user.gangPoints[gangPointsIndex].pointsBreakdown.messageActivity += 1;
+            user.gangPoints[gangPointsIndex].weeklyPointsBreakdown.messageActivity += 1;
 
             // Log the current state for debugging
             console.log(`Before update: User ${user.username} has ${user.points} total points`);
@@ -809,7 +916,6 @@ const trackMessage = async (message) => {
                 const currentPoints = user.points || 0;
                 const currentWeeklyPoints = user.weeklyPoints || 0;
 
-                // Increment the user's top-level points instead of setting them
                 user.points = currentPoints + 1;
                 user.weeklyPoints = currentWeeklyPoints + 1;
 
@@ -823,17 +929,19 @@ const trackMessage = async (message) => {
                 points: 1,
                 weeklyPoints: 1,
                 pointsBreakdown: {
+                    messageActivity: 1,
                     games: 0,
                     artAndMemes: 0,
                     activity: 0,
-                    gangActivity: 1,
+                    gangActivity: 0,
                     other: 0
                 },
                 weeklyPointsBreakdown: {
+                    messageActivity: 1,
                     games: 0,
                     artAndMemes: 0,
                     activity: 0,
-                    gangActivity: 1,
+                    gangActivity: 0,
                     other: 0
                 }
             });

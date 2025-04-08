@@ -1,110 +1,116 @@
-# MongoDB Gang Points System
+# MonGang Points System
 
-A Discord bot for tracking gang activities and points, built with Discord.js and MongoDB.
+Um sistema de pontos para Discord com integração MongoDB e Google Sheets, focado em competição entre gangs.
 
-## Features
+## Funcionalidades
 
-- Gang-based point system
-- Activity tracking in gang-specific channels
-- Leaderboard commands for individual and gang rankings
-- Weekly point resets and statistics
-- Cooldown and duplicate message detection
+- Sistema de pontos baseado em gangs
+- Rastreamento de atividades em canais específicos
+- Leaderboards semanais e totais
+- Reset automático semanal com backup no Google Sheets
+- Sistema de categorização de pontos (atividade em mensagens, games, arte/memes)
+- Cooldown e detecção de mensagens duplicadas
+- Dashboard web para visualização de estatísticas (em desenvolvimento)
 
-## Commands
+## Comandos
 
-- `/leaderboard [gang]` - View the server or gang leaderboard
-- `/weeklyLeaderboard [gang]` - View the weekly leaderboard
-- `/ganginfo [gang]` - View detailed information about a gang
-- `/userinfo [user]` - View a user's points and statistics
-- `/awardpoints user:@user points:10 [reason]` - Award points to a user (Admin only)
-- `/activity [gang]` - View activity statistics for gangs
+### Comandos de Usuário
+- `/leaderboard [gang]` - Ver o ranking geral ou de uma gang específica
+- `/weeklyLeaderboard [gang]` - Ver o ranking semanal
+- `/ganginfo [gang]` - Ver informações detalhadas sobre uma gang
+- `/userinfo [user]` - Ver pontos e estatísticas de um usuário
+- `/help` - Mostra todos os comandos disponíveis
 
-## How Points Work
+### Comandos de Administrador
+- `/awardpoints user:@user points:10 [reason]` - Atribuir pontos a um usuário
+- `/simulateweeklyreset` - Simula o reset semanal (apenas para testes)
+- `/resetallpoints` - Reseta todos os pontos (use com cautela)
 
-- Users earn points by sending messages in their gang's channel
-- Each valid message awards 1 point (both to the user and their gang)
-- Messages must be at least 5 characters long
-- Common greetings and duplicate messages don't count
-- There's a 5-minute cooldown between point-earning messages
+## Como os Pontos Funcionam
 
-## Development
+### Pontos por Mensagens
+- Usuários ganham pontos enviando mensagens no canal de sua gang
+- Cada mensagem válida dá 1 ponto (contabilizado como "Message Activity")
+- Mensagens precisam ter pelo menos 5 caracteres
+- Saudações comuns e mensagens duplicadas não contam
+- Cooldown de 5 minutos entre mensagens que dão pontos
 
-The system is designed around a MongoDB database with collections for:
-- Users
-- Gangs
-- Activity logs
+### Categorias de Pontos
+- Message Activity: pontos por mensagens nos canais
+- Games: pontos por participação em jogos e competições
+- Art & Memes: pontos por contribuições artísticas
+- Other: pontos por outras atividades
 
-Gang affiliations are configured in the `config/gangs.js` file, mapping Discord roles to gangs.
+## Reset Semanal Automático
 
-## Setup Requirements
+- Acontece todo domingo à meia-noite (00:00 UTC)
+- Exporta os rankings para uma nova aba no Google Sheets
+- Reseta os pontos semanais de usuários e gangs
+- Mantém o histórico de todas as semanas
+
+## Requisitos de Sistema
 
 1. Node.js 16+
-2. MongoDB database
-3. Discord application with bot permissions
+2. MongoDB 4.4+
+3. Conta Google com API Sheets habilitada
+4. Bot do Discord com as seguintes permissões:
+   - Manage Roles
+   - Send Messages
+   - Read Message History
+   - View Channels
 
-## Installation
+## Configuração
 
-1. Clone this repository
-2. Run `npm install` to install dependencies
-3. Configure environment variables
-4. Run `npm run deploy` to deploy slash commands
-5. Run `npm start` to start the bot
+1. Clone o repositório
+2. Instale as dependências: `npm install`
+3. Configure as variáveis de ambiente no arquivo `.env`:
+```env
+DISCORD_TOKEN=seu_token_do_discord
+MONGODB_URI=sua_uri_do_mongodb
+GOOGLE_SHEET_ID=id_da_sua_planilha
+GUILD_ID=id_do_seu_servidor
+```
+4. Configure as credenciais do Google Sheets:
+   - Coloque o arquivo `google-credentials.json` na raiz do projeto
+5. Configure as gangs em `config/gangs.js`
+6. Deploy dos comandos: `npm run deploy`
+7. Inicie o bot: `npm start`
 
-## Recent Changes
+## Estrutura do Banco de Dados
 
-- Cooldown increased to 5 minutes between point-earning messages
-- Improved concurrency handling for high-activity servers
-- Added automatic user registration in gang channels
-- Fixed tracking of gang total points
+### Coleção Users
+- username: Nome do usuário
+- points: Pontos totais
+- weeklyPoints: Pontos semanais
+- gangPoints: Array com pontos em cada gang
+- currentGangId: ID da gang atual
 
-## Requirements
+### Coleção Gangs
+- name: Nome da gang
+- points: Pontos totais
+- weeklyPoints: Pontos semanais
+- memberCount: Número de membros
+- pointsBreakdown: Detalhamento dos pontos
 
-- Node.js v16.9.0 or higher
-- MongoDB database
-- Discord bot token
-- (Optional) Google Sheets API credentials for Engage Bot integration
+## Integração com Google Sheets
 
-## Usage
+- Cada reset semanal cria uma nova aba (Week_1, Week_2, etc.)
+- Armazena ranking de usuários e gangs
+- Mantém histórico completo de pontuações
+- Inclui breakdown de pontos por categoria
 
-### Admin Commands
+## Contribuindo
 
-- `/setupgang`: Set up a new gang with a role, ID, name, and channel
+1. Fork o repositório
+2. Crie uma branch para sua feature: `git checkout -b feature/nova-feature`
+3. Commit suas mudanças: `git commit -m 'Adiciona nova feature'`
+4. Push para a branch: `git push origin feature/nova-feature`
+5. Abra um Pull Request
 
-### Moderator Commands
-
-- `/award`: Award points to a user
-- `/awardgang`: Award points to a gang
-- `/synctwitter`: Sync Twitter engagement points from Engage Bot
-
-### User Commands
-
-- `/leaderboard`: View the member points leaderboard
-- `/gangs`: View the gang leaderboard
-- `/linktwitter`: Link your Discord account to your Twitter account
-- `/help`: Show all available commands
-
-## Point Sources
-
-Points can be earned from:
-- Twitter engagement
-- Games & competitions
-- Art & memes
-- Server activity
-- Gang activity
-
-## Twitter Integration with Engage Bot
-
-This bot can integrate with Engage Bot's Twitter tracking:
-
-1. Users link their Twitter accounts with `/linktwitter`
-2. Run Engage Bot's `/userlist` command to generate a Google Sheet
-3. Configure the Google Sheet ID in your `.env` file
-4. Run `/synctwitter` to award points based on Twitter engagement
-
-## License
+## Licença
 
 ISC
 
 ---
 
-Created by Karatekid05 
+Desenvolvido por Karatekid05 

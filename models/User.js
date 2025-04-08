@@ -8,18 +8,16 @@ const gangPointsSchema = new mongoose.Schema({
     weeklyPoints: { type: Number, default: 0 },
     // Track different point sources
     pointsBreakdown: {
-        games: { type: Number, default: 0 },
+        messageActivity: { type: Number, default: 0 },
+        gamer: { type: Number, default: 0 },
         artAndMemes: { type: Number, default: 0 },
-        activity: { type: Number, default: 0 },
-        gangActivity: { type: Number, default: 0 },
         other: { type: Number, default: 0 }
     },
     // Weekly breakdown
     weeklyPointsBreakdown: {
-        games: { type: Number, default: 0 },
+        messageActivity: { type: Number, default: 0 },
+        gamer: { type: Number, default: 0 },
         artAndMemes: { type: Number, default: 0 },
-        activity: { type: Number, default: 0 },
-        gangActivity: { type: Number, default: 0 },
         other: { type: Number, default: 0 }
     },
     lastActive: { type: Date }
@@ -106,17 +104,15 @@ userSchema.methods.addPointsToGang = function (gangId, gangName, points, source)
             points: 0,
             weeklyPoints: 0,
             pointsBreakdown: {
-                games: 0,
+                messageActivity: 0,
+                gamer: 0,
                 artAndMemes: 0,
-                activity: 0,
-                gangActivity: 0,
                 other: 0
             },
             weeklyPointsBreakdown: {
-                games: 0,
+                messageActivity: 0,
+                gamer: 0,
                 artAndMemes: 0,
-                activity: 0,
-                gangActivity: 0,
                 other: 0
             }
         };
@@ -127,27 +123,39 @@ userSchema.methods.addPointsToGang = function (gangId, gangName, points, source)
     gangPoints.points += points;
     gangPoints.weeklyPoints += points;
 
-    // Update breakdown
-    if (source === 'twitter') {
-        // Handle twitter source as 'other' for backward compatibility
-        gangPoints.pointsBreakdown.other += points;
-        gangPoints.weeklyPointsBreakdown.other += points;
-    } else if (source === 'games') {
-        gangPoints.pointsBreakdown.games += points;
-        gangPoints.weeklyPointsBreakdown.games += points;
-    } else if (source === 'artAndMemes') {
-        gangPoints.pointsBreakdown.artAndMemes += points;
-        gangPoints.weeklyPointsBreakdown.artAndMemes += points;
-    } else if (source === 'activity') {
-        gangPoints.pointsBreakdown.activity += points;
-        gangPoints.weeklyPointsBreakdown.activity += points;
-    } else if (source === 'gangActivity') {
-        gangPoints.pointsBreakdown.gangActivity += points;
-        gangPoints.weeklyPointsBreakdown.gangActivity += points;
-    } else {
-        gangPoints.pointsBreakdown.other += points;
-        gangPoints.weeklyPointsBreakdown.other += points;
+    // Update breakdown based on source
+    switch (source) {
+        case 'messageActivity':
+            gangPoints.pointsBreakdown.messageActivity += points;
+            gangPoints.weeklyPointsBreakdown.messageActivity += points;
+            break;
+        case 'gamer':
+            gangPoints.pointsBreakdown.gamer += points;
+            gangPoints.weeklyPointsBreakdown.gamer += points;
+            break;
+        case 'artAndMemes':
+            gangPoints.pointsBreakdown.artAndMemes += points;
+            gangPoints.weeklyPointsBreakdown.artAndMemes += points;
+            break;
+        default:
+            gangPoints.pointsBreakdown.other += points;
+            gangPoints.weeklyPointsBreakdown.other += points;
     }
+
+    // Ensure no category goes below 0
+    const categories = ['messageActivity', 'gamer', 'artAndMemes', 'other'];
+    for (const category of categories) {
+        if (gangPoints.pointsBreakdown[category] < 0) {
+            gangPoints.pointsBreakdown[category] = 0;
+        }
+        if (gangPoints.weeklyPointsBreakdown[category] < 0) {
+            gangPoints.weeklyPointsBreakdown[category] = 0;
+        }
+    }
+
+    // Recalculate total points from breakdown
+    gangPoints.points = Object.values(gangPoints.pointsBreakdown).reduce((a, b) => a + b, 0);
+    gangPoints.weeklyPoints = Object.values(gangPoints.weeklyPointsBreakdown).reduce((a, b) => a + b, 0);
 
     // If this is the current gang, also update the user's total points
     if (gangId === this.currentGangId) {
@@ -190,17 +198,15 @@ userSchema.methods.switchGang = function (newGangId, newGangName) {
             points: 0,
             weeklyPoints: 0,
             pointsBreakdown: {
-                games: 0,
+                messageActivity: 0,
+                gamer: 0,
                 artAndMemes: 0,
-                activity: 0,
-                gangActivity: 0,
                 other: 0
             },
             weeklyPointsBreakdown: {
-                games: 0,
+                messageActivity: 0,
+                gamer: 0,
                 artAndMemes: 0,
-                activity: 0,
-                gangActivity: 0,
                 other: 0
             }
         });

@@ -31,19 +31,15 @@ async function main() {
                             points: 0,
                             weeklyPoints: 0,
                             pointsBreakdown: {
-                                twitter: 0,
-                                games: 0,
+                                messageActivity: 0,
+                                gamer: 0,
                                 artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
                                 other: 0
                             },
                             weeklyPointsBreakdown: {
-                                twitter: 0,
-                                games: 0,
+                                messageActivity: 0,
+                                gamer: 0,
                                 artAndMemes: 0,
-                                activity: 0,
-                                gangActivity: 0,
                                 other: 0
                             }
                         }
@@ -59,17 +55,13 @@ async function main() {
                                 $set: {
                                     [`gangPoints.${i}.points`]: 0,
                                     [`gangPoints.${i}.weeklyPoints`]: 0,
-                                    [`gangPoints.${i}.pointsBreakdown.twitter`]: 0,
-                                    [`gangPoints.${i}.pointsBreakdown.games`]: 0,
+                                    [`gangPoints.${i}.pointsBreakdown.messageActivity`]: 0,
+                                    [`gangPoints.${i}.pointsBreakdown.gamer`]: 0,
                                     [`gangPoints.${i}.pointsBreakdown.artAndMemes`]: 0,
-                                    [`gangPoints.${i}.pointsBreakdown.activity`]: 0,
-                                    [`gangPoints.${i}.pointsBreakdown.gangActivity`]: 0,
                                     [`gangPoints.${i}.pointsBreakdown.other`]: 0,
-                                    [`gangPoints.${i}.weeklyPointsBreakdown.twitter`]: 0,
-                                    [`gangPoints.${i}.weeklyPointsBreakdown.games`]: 0,
+                                    [`gangPoints.${i}.weeklyPointsBreakdown.messageActivity`]: 0,
+                                    [`gangPoints.${i}.weeklyPointsBreakdown.gamer`]: 0,
                                     [`gangPoints.${i}.weeklyPointsBreakdown.artAndMemes`]: 0,
-                                    [`gangPoints.${i}.weeklyPointsBreakdown.activity`]: 0,
-                                    [`gangPoints.${i}.weeklyPointsBreakdown.gangActivity`]: 0,
                                     [`gangPoints.${i}.weeklyPointsBreakdown.other`]: 0
                                 }
                             }
