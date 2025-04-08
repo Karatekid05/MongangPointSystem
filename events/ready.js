@@ -1,106 +1,71 @@
+const { Client } = require('discord.js');
 const { gangsConfig } = require('../config/gangs');
-const { fetchGangMembersByRole, updateGangTotalPoints, updateGangWeeklyPoints } = require('../utils/pointsManager');
 const { Gang } = require('../utils/dbModels');
-const { initScheduledTasks } = require('../utils/scheduledTasks');
+const batchProcessor = require('../utils/batchProcessor');
 
 module.exports = {
     name: 'ready',
     once: true,
+    /**
+     * @param {Client} client
+     */
     async execute(client) {
-        console.log(`Ready! Logged in as ${client.user.tag}`);
-
-        // Set bot activity to display help command
-        client.user.setActivity('/help', { type: 'WATCHING' });
+        console.log('Ready! Logged in as ' + client.user.tag);
+        client.user.setActivity('with points', { type: 'PLAYING' });
 
         // Initialize scheduled tasks
         console.log('Initializing scheduled tasks...');
-        initScheduledTasks(client);
+        require('../utils/scheduler').initializeScheduledTasks(client);
+        console.log('Initializing scheduled tasks');
 
-        // Additional startup tasks can go here
+        // Log the number of servers the bot is in
         console.log(`Bot is in ${client.guilds.cache.size} servers`);
-        console.log('Using MongoDB database');
 
-        // Inicializar as gangues no MongoDB
         try {
-            console.log('Inicializando gangues no MongoDB...');
-
-            for (const gangConfig of gangsConfig) {
-                // Verificar se a gangue já existe
-                let gang = await Gang.findOne({ gangId: gangConfig.gangId });
-
-                if (!gang) {
-                    console.log(`Criando gangue ${gangConfig.name} (${gangConfig.gangId}) no MongoDB`);
-                    // Criar a gangue se não existir
-                    gang = await Gang.create({
-                        gangId: gangConfig.gangId,
-                        name: gangConfig.name,
-                        guildId: process.env.GUILD_ID,
-                        channelId: gangConfig.channelId,
-                        roleId: gangConfig.roleId,
-                        points: 0,
-                        weeklyPoints: 0,
-                        memberCount: 0,
-                        totalMemberPoints: 0,
-                        weeklyMemberPoints: 0,
-                        messageCount: 0,
-                        weeklyMessageCount: 0,
-                        pointsBreakdown: {
-                            events: 0,
-                            competitions: 0,
-                            other: 0
-                        },
-                        weeklyPointsBreakdown: {
-                            events: 0,
-                            competitions: 0,
-                            other: 0
+            // Initialize gangs in MongoDB
+            console.log('Initializing gangs in MongoDB...');
+            const gangBulkOps = gangsConfig.map(gang => ({
+                updateOne: {
+                    filter: { roleId: gang.roleId },
+                    update: {
+                        $set: {
+                            name: gang.name,
+                            roleId: gang.roleId,
+                            members: [],
+                            totalPoints: 0,
+                            weeklyPoints: 0
                         }
-                    });
-                    console.log(`Gangue ${gangConfig.name} criada com sucesso`);
-                } else {
-                    console.log(`Gangue ${gangConfig.name} já existe no banco de dados`);
+                    },
+                    upsert: true
                 }
-            }
-        } catch (error) {
-            console.error('Erro ao inicializar gangues:', error);
-        }
+            }));
 
-        // Sync all gang members on startup
-        try {
-            console.log('Starting automatic gang member synchronization...');
-            const guild = client.guilds.cache.first();
+            await Gang.bulkWrite(gangBulkOps);
+            console.log('Gang initialization complete');
 
+            // Sync gang members
+            console.log('Starting gang member sync...');
+            const guild = client.guilds.cache.get(process.env.GUILD_ID);
             if (!guild) {
-                console.log('No guild found to synchronize members');
+                console.error('Guild not found');
                 return;
             }
 
-            console.log(`Found guild: ${guild.name} (${guild.id})`);
+            // Fetch all members
+            await guild.members.fetch();
+            console.log(`Fetched ${guild.members.cache.size} members`);
 
-            // Process each gang in configuration
-            for (const gang of gangsConfig) {
-                try {
-                    console.log(`Syncing gang ${gang.name} (${gang.gangId})`);
+            // Add all members to the processor
+            guild.members.cache.forEach(member => {
+                batchProcessor.addToQueue(member);
+            });
 
-                    // Fetch all members with the gang role
-                    const gangMembers = await fetchGangMembersByRole(
-                        client,
-                        guild.id,
-                        gang.gangId
-                    );
+            // Process all members at once
+            await batchProcessor.processAllMembers();
+            console.log('Member processing completed');
 
-                    console.log(`Synced ${gangMembers.memberCount} members for ${gang.name}`);
-
-                    // Update points calculations
-                    await updateGangTotalPoints(gang.gangId);
-                    await updateGangWeeklyPoints(gang.gangId);
-                } catch (error) {
-                    console.error(`Error syncing gang ${gang.name}:`, error.message);
-                }
-            }
-
-            console.log('Automatic gang member synchronization complete');
         } catch (error) {
-            console.error('Error during automatic gang synchronization:', error);
+            console.error('Error in ready event:', error);
         }
     }
 };

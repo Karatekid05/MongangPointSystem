@@ -15,6 +15,13 @@ try {
     mongoose.connect(process.env.MONGODB_URI, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 30000,
+        maxPoolSize: 100,
+        minPoolSize: 20,
+        connectTimeoutMS: 30000,
+        retryWrites: true,
+        retryReads: true
     })
         .then(() => {
             console.log('MongoDB connected successfully');
