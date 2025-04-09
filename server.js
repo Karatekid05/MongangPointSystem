@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3002;
 
 // Configurar CORS
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*', // Será configurado para seu domínio Vercel
+    origin: ['https://mongang-dashboard.vercel.app', 'http://localhost:3000'],
     methods: ['GET', 'POST'],
     credentials: true
 }));

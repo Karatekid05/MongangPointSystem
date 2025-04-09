@@ -432,27 +432,13 @@ async function getWeeklyGangLeaderboard(guildId) {
  * @param {Number} skip - Number of users to skip (for pagination)
  * @returns {Promise<Array>} - Array of top gang members
  */
-async function getGangMemberLeaderboard(gangId, limit = 100, skip = 0) {
-    console.log(`Getting gang member leaderboard for gangId: ${gangId}, limit: ${limit}, skip: ${skip}`);
+async function getGangMemberLeaderboard(gangId, limit = 10, skip = 0) {
+    const gang = await Gang.findOne({ roleId: gangId });
+    if (!gang) return [];
 
-    // Get the users
-    const users = await User.find({ currentGangId: gangId, points: { $gt: 0 } });
-
-    console.log(`Found ${users.length} users for gang ${gangId}`);
-
-    // Sort manually if .sort() is not available on the returned object
-    if (!users.sort) {
-        // Create a copy we can sort
-        const sortedUsers = [...users].sort((a, b) => b.points - a.points);
-        // Handle pagination
-        return sortedUsers.slice(skip, skip + limit);
-    }
-
-    // If sort is available, use it (MongoDB implementation)
-    return users
-        .sort({ points: -1 })
-        .skip(skip)
-        .limit(limit);
+    const users = await User.find({ discordId: { $in: gang.members } }).lean();
+    users.sort((a, b) => b.totalPoints - a.totalPoints);
+    return users.slice(skip, skip + limit);
 }
 
 /**
